@@ -75,3 +75,5 @@ sh ep01/render.sh      # node build.mjs → рендер HyperFrames → све�
 7. «Подпишись…»
 
 Сборка: `sh ep02/render.sh`. Файлы: `build.mjs`, `places.mjs` (мини-сцены мест), `genres.mjs`, `audio.mjs`, `lines.mjs`.
+
+YouTube: загружено 05.11.2026 на канал «Теория без нервов» — https://youtube.com/shorts/TQKWzrsSO4E (описание — `ep02/youtube.json`).
