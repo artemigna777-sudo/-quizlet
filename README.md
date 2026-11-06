@@ -95,3 +95,5 @@ YouTube: загружено 05.11.2026 на канал «Теория без н�
 6. «Курьер ПДД» перед концом, 7. подписка.
 
 Сборка: `sh ep03/render.sh`. Сцены — `town.mjs`. Описание для YouTube — `ep03/youtube.json`.
+
+YouTube: загружено 06.11.2026 — https://youtube.com/shorts/aQ5f2X5avfg
