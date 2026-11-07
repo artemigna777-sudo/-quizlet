@@ -18,6 +18,7 @@ const path = require('path');
   }).listen(8765);
   await p.goto('http://localhost:8765/');
   await p.waitForFunction(() => window.ready === true, null, { timeout: 60000 });
+  if (process.env.NOLBL) await p.addStyleTag({ content: '#lbl{display:none}' });
   const N = Number(process.env.FRAMES || 150);
   const only = process.env.AT ? process.env.AT.split(',').map(Number) : null;
   const times = only || Array.from({ length: N }, (_, i) => i / 30);
