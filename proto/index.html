@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>Прототип: заброшенный город</title>
+<style>
+@font-face{font-family:Caveat;font-weight:700;src:url(caveat.woff2) format('woff2')}
+@font-face{font-family:Russo;src:url(russo.woff2) format('woff2')}
+html,body{margin:0;background:#000;overflow:hidden}
+#view{position:relative;width:360px;height:640px}
+canvas{display:block;image-rendering:pixelated}
+#lbl{position:absolute;left:0;right:0;top:64px;text-align:center;font-family:Russo;font-size:15px;letter-spacing:2px;color:rgba(255,255,255,.75);text-shadow:0 1px 0 #000}
+#lbl b{color:#ff7a2e;font-weight:400}
+#vig{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 50%,rgba(0,0,0,0) 45%,rgba(0,0,0,.75) 100%);pointer-events:none}
+</style></head>
+<body><div id="view"><div id="vig"></div><div id="lbl"><b>ПРОТОТИП</b> · ИГРУ ДЕЛАЮТ ЗРИТЕЛИ</div></div>
+<script>
+Promise.all([new FontFace('Caveat','url(caveat.woff2)',{weight:'700'}).load(),new FontFace('Russo','url(russo.woff2)').load()])
+  .then((fs)=>{fs.forEach((f)=>document.fonts.add(f));return import('./scene.js');})
+  .catch((e)=>{document.title='ERR '+e;});
+</script></body></html>
