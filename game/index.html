@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0e0f13">
+<title>Стёртый город — игру делают зрители</title>
+<style>
+@font-face{font-family:Caveat;font-weight:700;src:url(./fonts/caveat.woff2) format('woff2')}
+@font-face{font-family:Russo;src:url(./fonts/russo.woff2) format('woff2')}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#f4f4f2;touch-action:none;user-select:none;-webkit-user-select:none}
+#view{position:fixed;inset:0;width:100vw;height:100dvh;display:block;image-rendering:pixelated}
+#vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,rgba(0,0,0,0) 45%,rgba(0,0,0,.7) 100%)}
+#static{position:fixed;inset:0;pointer-events:none;opacity:0;background:repeating-linear-gradient(0deg,#0b0b0e 0 3px,#3a3a44 3px 5px,#08080a 5px 9px);mix-blend-mode:screen}
+#hud{position:fixed;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top) + 12px) 14px 0;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none;font-family:Russo,sans-serif}
+#mem{font-size:17px;letter-spacing:1px;padding:8px 12px;border-radius:12px;background:rgba(14,15,19,.6);border:2px solid rgba(255,255,255,.18)}
+#mem b{color:#ff7a2e;font-weight:400}
+#erase{width:150px;opacity:0;transition:opacity .3s}
+#erase span{display:block;font-size:12px;letter-spacing:2px;color:#cfe8ff;text-align:right;margin-bottom:4px}
+#erase i{display:block;height:10px;border-radius:6px;background:rgba(255,255,255,.15);overflow:hidden}
+#erase i b{display:block;height:100%;width:0;background:linear-gradient(90deg,#4fd1ff,#fff)}
+#toast{position:fixed;left:16px;right:16px;top:22%;text-align:center;font-size:20px;font-weight:700;line-height:1.3;text-shadow:0 2px 0 #000,0 0 12px #000;opacity:0;transition:opacity .4s;pointer-events:none}
+#prompt{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 150px);text-align:center;font-size:18px;font-weight:700;text-shadow:0 2px 0 #000;display:none;pointer-events:none}
+#prompt b{display:inline-block;padding:6px 14px;border-radius:10px;background:#ff7a2e;color:#111}
+.btn{position:fixed;width:64px;height:64px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:rgba(14,15,19,.55);color:#fff;font-size:28px;display:none;align-items:center;justify-content:center;padding:0}
+.touch .btn{display:flex}
+#bLight{right:16px;bottom:calc(env(safe-area-inset-bottom) + 96px)}
+#bHand{right:92px;bottom:calc(env(safe-area-inset-bottom) + 30px)}
+#bAct{right:16px;bottom:calc(env(safe-area-inset-bottom) + 172px);background:#ff7a2e;color:#111;font-family:Russo,sans-serif;font-size:15px;width:76px;height:76px;display:none}
+#stick{position:fixed;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:2px solid rgba(255,255,255,.3);background:rgba(255,255,255,.06);display:none;pointer-events:none}
+#stick i{position:absolute;left:36px;top:36px;width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.4)}
+.screen{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center;background:rgba(6,7,10,.88)}
+.screen.on{display:flex}
+.screen h1{font-family:Russo,sans-serif;font-size:44px;line-height:1.05;margin:0;font-weight:400}
+.screen h1 span{color:#ff7a2e}
+.screen p{max-width:460px;margin:0;font-size:17px;line-height:1.45;color:#c9ccd4}
+.screen small{color:#8c8f97;font-size:14px;line-height:1.4;max-width:460px}
+.go{min-width:220px;min-height:56px;padding:14px 28px;border:0;border-radius:999px;background:#ff7a2e;color:#111;font-family:Russo,sans-serif;font-size:22px}
+.ghost{min-height:48px;padding:10px 22px;border-radius:999px;border:2px solid rgba(255,255,255,.3);background:none;color:#fff;font-size:16px}
+#card{background:rgba(6,7,10,.8)}
+#card .paper{max-width:440px;padding:26px 24px;border-radius:18px;background:#efe6cf;color:#221a12;box-shadow:0 30px 80px rgba(0,0,0,.7);transform:rotate(-1.5deg)}
+#card .paper h2{margin:0 0 10px;font-family:Russo,sans-serif;font-weight:400;font-size:26px}
+#card .paper p{color:#3a2e22;font-size:18px}
+#erased{background:#d9dde6;color:#111}
+#erased h1{color:#111}
+#erased p{color:#333}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="vig"></div>
+<div id="static"></div>
+<div id="hud"><div id="mem">ВОСПОМИНАНИЯ <b id="memN">0</b>/3</div><div id="erase"><span>СТИРАНИЕ</span><i><b id="eraseBar"></b></i></div></div>
+<div id="toast"></div>
+<div id="prompt"><b id="promptText"></b></div>
+<div id="stick"><i></i></div>
+<button class="btn" id="bLight" aria-label="Фонарик">🔦</button>
+<button class="btn" id="bHand" aria-label="Ладонь">✋</button>
+<button class="btn" id="bAct">ВЗЯТЬ</button>
+
+<div class="screen on" id="menu">
+  <h1>СТЁРТЫЙ<br><span>ГОРОД</span></h1>
+  <p>Ты не помнишь, кто ты. Город пуст. Рядом — только пёс со шрамом.</p>
+  <button class="go" id="start">ИГРАТЬ</button>
+  <button class="ghost" id="reset" style="display:none">Начать заново</button>
+  <small id="help"></small>
+  <small>Ранняя версия. Игру придумывают зрители, код пишет нейросеть.</small>
+</div>
+<div class="screen" id="card"><div class="paper"><h2 id="cardTitle"></h2><p id="cardText"></p></div><button class="go" id="cardOk">ДАЛЬШЕ</button></div>
+<div class="screen" id="erased"><h1>ТЕБЯ СТЁРЛИ</h1><p>Рядом не было никого, кто тебя помнит. Держись ближе к псу.</p><button class="go" id="again">ЕЩЁ РАЗ</button></div>
+<div class="screen" id="pause"><h1>ПАУЗА</h1><button class="go" id="resume">ПРОДОЛЖИТЬ</button></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

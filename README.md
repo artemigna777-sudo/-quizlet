@@ -151,3 +151,8 @@ YouTube: загружено 09.11.2026 — https://youtube.com/shorts/MmEehtnxkK
 
 Сборка: `sh ep07/render.sh`. Сцены — `names.mjs`.
 YouTube: загружено 11.11.2026 — https://youtube.com/shorts/qze-BG3CT_A
+
+## Игра (`game/`)
+
+Начата 11.11.2026: «Стёртый город», версия 0.1 — см. `game/README.md`.
+Ссылка после включения GitHub Pages: https://artemigna777-sudo.github.io/-quizlet/

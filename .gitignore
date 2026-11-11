@@ -3,3 +3,5 @@ node_modules/
 node_modules/
 proto/frames/
 proto/sheet.png
+game/dist/
+game/tests/shots/
