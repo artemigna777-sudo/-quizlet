@@ -11,6 +11,7 @@ import { stepErasure } from './logic';
 import { animateMemories, buildMemories, type Memory } from './memories';
 import { buildPlaces } from './places';
 import { loadPeople } from './people';
+import { photoCanvas } from './photos';
 import { Player } from './player';
 import { Shooter } from './shooter';
 import { HOMES, canReveal, canTake, homeOf, itemOf, memId, revealed, yardGoal, type YardState } from './story';
@@ -169,7 +170,10 @@ async function boot() {
     document.body.classList.toggle('two', arms.hasAxe && arms.hasGun);
     document.body.classList.toggle('bino', st.hold === 'bino');
   };
-  const card = (title: string, text: string, kind: 'note' | 'memory', voice?: string) => {
+  const card = (title: string, text: string, kind: 'note' | 'memory', voice?: string, photo?: string) => {
+    const img = $<HTMLImageElement>('cardImg');
+    img.style.display = photo ? 'block' : 'none';
+    if (photo) img.src = photoCanvas(photo).toDataURL('image/jpeg', 0.85);
     if (voice) sound.say(voice);
     $('cardKind').textContent = kind === 'memory' ? 'ВОСПОМИНАНИЕ' : '';
     $('cardTitle').textContent = title;
@@ -334,7 +338,7 @@ async function boot() {
   };
   const VERB: Record<string, string> = { bowl: 'поставить миску у порога', key: 'открыть ключом', bino: 'посмотреть в глазок через бинокль', metro: 'завести метроном' };
   const spotLabel = (s: Spot): string => {
-    if (s.kind === 'note') return `прочитать: ${s.title.toLowerCase()}`;
+    if (s.kind === 'note') return `${s.photo ? 'посмотреть' : 'прочитать'}: ${s.title.toLowerCase()}`;
     if (s.kind === 'loot') return `взять: ${s.title}`;
     if (s.kind === 'bed') return 'переждать ночь';
     if (s.kind === 'talk') return 'поговорить с Зоей';
@@ -352,7 +356,7 @@ async function boot() {
     card(h.memory.title, h.memory.text, 'memory', `m_${home}`);
   };
   const useSpot = (s: Spot) => {
-    if (s.kind === 'note') { sound.click(); card(s.title, s.text, 'note'); return; }
+    if (s.kind === 'note') { sound.click(); card(s.title, s.text, 'note', undefined, s.photo); return; }
     if (s.kind === 'talk') { talkZoya(); return; }
     if (s.kind === 'bed') {
       // В доме, который вспомнили, ночью безопасно: можно дождаться утра.
@@ -443,6 +447,7 @@ async function boot() {
         if (siege.left <= 0) { siege = null; enemies.clear(); st.tod = 0.27; st.vit = { ...st.vit, hp: Math.max(st.vit.hp, 60) }; playEnding(); }
       }
       if (input.hit('KeyF')) { player.flashlightOn = !player.flashlightOn; sound.click(); }
+      player.flashPower = 1 - daylight(st.tod) * 0.8;
       player.update(dt, input, look, world.boxes, world.half, false);
       const fwd = player.forward();
       const indoors = homes.inside(player.pos) !== null || places.inside(player.pos);

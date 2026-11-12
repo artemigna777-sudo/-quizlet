@@ -9,11 +9,12 @@ import { canvasTex, lambert } from './gfx';
 import type { Box } from './logic';
 import { LOOT_NAME, lootMesh, type LootKind } from './loot';
 import { loadModel, type Proto } from './models';
+import { photoCanvas } from './photos';
 import { HOMES, ITEMS, type HomeId, type Room } from './story';
 
 export interface Spot {
   id: string; kind: 'note' | 'item' | 'gate' | 'loot' | 'bed' | 'bench' | 'talk'; home?: HomeId; room: Room; at: Vec2;
-  title: string; text: string; mesh: THREE.Object3D | null; loot?: LootKind;
+  title: string; text: string; mesh: THREE.Object3D | null; loot?: LootKind; photo?: string;
 }
 export interface Homes {
   spots: Spot[];
@@ -97,6 +98,21 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     g.fillStyle = '#141a2c'; g.fillRect(2, 2, 5, 16); g.fillRect(9, 2, 5, 16);
     g.fillStyle = '#2a3350'; g.fillRect(2, 2, 5, 5); g.fillRect(9, 2, 5, 5);
   }), color: 0x9a9a9a });
+  const brokenMat = new THREE.MeshBasicMaterial({ map: canvasTex(32, 40, (g, w, h) => {
+    g.fillStyle = '#d8d2c4'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#141a2c'; g.fillRect(3, 3, 11, 34); g.fillRect(18, 3, 11, 34);
+    g.fillStyle = '#05060a'; g.beginPath(); g.moveTo(5, 30); g.lineTo(8, 12); g.lineTo(12, 20); g.lineTo(13, 8); g.lineTo(14, 36); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(19, 6); g.lineTo(27, 10); g.lineTo(22, 18); g.lineTo(28, 26); g.lineTo(19, 24); g.closePath(); g.fill();
+    g.strokeStyle = '#9fb4c8'; g.beginPath(); g.moveTo(8, 12); g.lineTo(4, 5); g.moveTo(12, 20); g.lineTo(6, 34); g.moveTo(22, 18); g.lineTo(28, 36); g.moveTo(27, 10); g.lineTo(29, 4); g.stroke();
+  }), color: 0x9a9a9a });
+  const boardedMat = new THREE.MeshBasicMaterial({ map: canvasTex(32, 40, (g, w, h) => {
+    g.fillStyle = '#d8d2c4'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#0a0c12'; g.fillRect(3, 3, 26, 34);
+    g.fillStyle = '#7a5a36'; g.save(); g.translate(16, 20); for (const [a, y] of [[0.12, -12], [-0.08, -2], [0.2, 9]]) { g.save(); g.rotate(a); g.fillRect(-17, y, 34, 6); g.restore(); } g.restore();
+    g.fillStyle = '#2a2a2e'; for (const [x, y] of [[4, 9], [27, 10], [4, 19], [27, 18], [5, 31], [26, 28]]) g.fillRect(x, y, 1, 1);
+  }), color: 0x9a9a9a });
+  const shardMat = new THREE.MeshBasicMaterial({ color: 0xbfd6e4, transparent: true, opacity: 0.75, side: THREE.DoubleSide });
+  const holeMat = lambert({ color: 0x07080c });
   const basic = (color: number) => new THREE.MeshBasicMaterial({ color });
   let seed = 77;
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
@@ -195,7 +211,7 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       const pos = side === 0 ? [u, y, 5.06] : side === 1 ? [u, y, -5.06] : side === 2 ? [-5.06, y, u] : [5.06, y, u];
       WM.compose(new THREE.Vector3(pos[0], pos[1], pos[2]), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), S1);
       const wm = WM.clone();
-      piece(frameGeo, trimMat, 0, 0, 0, wm); piece(glassGeo, glassMat, 0, 0, 0.05, wm); piece(sillGeo, trimMat, 0, -0.82, 0.08, wm);
+      piece(frameGeo, trimMat, 0, 0, 0, wm); piece(glassGeo, rnd() < 0.3 ? holeMat : glassMat, 0, 0, 0.05, wm); piece(sillGeo, trimMat, 0, -0.82, 0.08, wm);
       if (balcony) {
         piece(new THREE.BoxGeometry(2.2, 0.12, 1.0), plinthMat, 0, -0.95, 0.5, wm); piece(new THREE.BoxGeometry(2.2, 0.9, 0.06), railMat, 0, -0.45, 0.98, wm);
         piece(new THREE.BoxGeometry(0.06, 0.9, 1.0), railMat, -1.08, -0.45, 0.5, wm); piece(new THREE.BoxGeometry(0.06, 0.9, 1.0), railMat, 1.08, -0.45, 0.5, wm);
@@ -218,8 +234,21 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     }) }));
     plate.position.set(1.1, 1.9, 5.02);
     g.add(leaf, plate);
-    const win = (x: number, z: number, ry: number, room: THREE.Group) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.4), windowMat); m.position.set(x, 1.55, z); m.rotation.y = ry; room.add(m); };
+    const shards: number[] = [];
+    const win = (x: number, z: number, ry: number, room: THREE.Group) => {
+      const k = rnd();
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.4), k < 0.4 ? windowMat : k < 0.8 ? brokenMat : boardedMat);
+      m.position.set(x, 1.55, z); m.rotation.y = ry; room.add(m);
+      if (k < 0.4 || k >= 0.8) return;
+      // Осколки на полу под разбитым окном.
+      const nx = Math.sin(ry), nz = Math.cos(ry);
+      for (let i = 0; i < 16; i++) {
+        const d = 0.25 + rnd() * 1.3, side = (rnd() - 0.5) * 1.6, px = x + nx * d - nz * side, pz = z + nz * d + nx * side, a = rnd() * 6.3, sz = 0.05 + rnd() * 0.12;
+        for (let v = 0; v < 3; v++) shards.push(px + Math.cos(a + v * 2.1) * sz * (v === 1 ? 1.6 : 1), FLOOR + 0.045, pz + Math.sin(a + v * 2.1) * sz);
+      }
+    };
     win(-4.74, 2.4, Q, A); win(3.0, 4.74, Math.PI, A); win(-2.2, -4.74, 0, B);
+    if (shards.length) { const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(shards, 3)); g.add(new THREE.Mesh(sg, shardMat)); }
     doors.set(def.id, W(0, 6.4));
 
     // ───────── Мебель и вещи ─────────
@@ -285,11 +314,13 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     const prim = (room: THREE.Group, geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, FLOOR + y, z); room.add(m); return m; };
     const note = (id: string, x: number, z: number, y: number, wallRot?: number) => {
       const n = def.notes.find((v) => v.id === id)!;
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.32), noteMat);
+      const photoTex = n.photo ? new THREE.CanvasTexture(photoCanvas(n.photo)) : null;
+      if (photoTex) photoTex.colorSpace = THREE.SRGBColorSpace;
+      const m = photoTex ? new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.32), new THREE.MeshBasicMaterial({ map: photoTex, side: THREE.DoubleSide, color: 0xb8b0a0 })) : new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.32), noteMat);
       m.position.set(x, FLOOR + y, z);
       if (wallRot === undefined) m.rotation.set(-Q, 0, 0.3); else m.rotation.y = wallRot;
       (n.room === 'A' ? A : B).add(m);
-      spots.push({ id, kind: 'note', home: def.id, room: n.room, at: W(x, z), title: n.title, text: n.text, mesh: m });
+      spots.push({ id, kind: 'note', home: def.id, room: n.room, at: W(x, z), title: n.title, text: n.text, mesh: m, photo: n.photo });
     };
     const item = (id: string, mesh: THREE.Object3D, x: number, z: number) => {
       const it = ITEMS.find((v) => v.id === id)!;
@@ -322,6 +353,8 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(A, 'fancy_picture_frame_01', -4.72, 0.6, Q, { y: 1.5 });
       put(A, 'hanging_picture_frame_02', 1.9, 4.72, Math.PI, { y: 1.6 });
       put(A, 'Ottoman_01', 1.0, 2.6, 0.3);
+      note('p-nina', -2.0, 4.72, 1.5, Math.PI);
+      note('n-diary', -3.1, -2.15, 0.78);
       note('n-sept', -3.25, 3.42, 1.05, 2.4 - Math.PI);
       note('n-nov', 4.15, 2.3, 0.82);
       note('n-zoya', 1.2, 4.72, 1.4, Math.PI);
@@ -381,6 +414,8 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       on(A, 'small_wooden_table_01', 'potted_plant_04', 2.9, 4.3, 0, 1.4);
       put(A, 'long_life_food', 0.8, -0.2, 0, { y: 0.8, s: 0.7, solid: false });
       put(A, 'fancy_picture_frame_01', -4.72, 3.9, Q, { y: 1.55 });
+      note('p-zoya', -4.72, 0.9, 1.5, Q);
+      note('z-cal', -3.3, -0.37, 1.5, 0);
       note('z-book', -3.5, 1.6, 0.9);
       loot('food', 'килька в томате', 'A', -3.3, 2.9, 0.9);
       loot('water', 'бидон с водой', 'A', 3.6, 0.6, 0);
@@ -427,6 +462,8 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(A, 'planter_pot_clay', 4.4, 4.4);
       put(A, 'throw_pillows_01', -4.2, 2.0, Q, { y: 0.42, s: 0.8, solid: false });
       put(A, 'hanging_picture_frame_02', 3.2, 4.72, Math.PI, { y: 1.7 });
+      note('p-gena', -2.4, 4.72, 1.5, Math.PI);
+      note('g-river', 4.2, -1.15, 0.82);
       note('g-bills', -4.2, 4.1, 0.36);
       loot('food', 'тушёнка', 'A', 3.9, 3.6, 0.98);
       loot('water', 'канистра воды', 'B', -4.3, -2.2, 0);
@@ -492,6 +529,8 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(A, 'dartboard', 4.72, 0.2, -Q, { y: 1.6 });
       put(A, 'boombox', -4.5, 1.2, Q, { y: 0.78, s: 0.6, solid: false });
       put(A, 'wooden_display_shelves_01', -4.55, -0.1 + 0.6, Q);
+      note('p-tema', 4.72, 2.6, 1.6, -Q);
+      note('t-lost', -4.2, 3.78, 0.8);
       note('t-spy', -4.15, 3.1, 0.8);
       loot('food', 'сухарики', 'A', 3.3, 1.2, 0.02);
       loot('water', 'банка компота', 'B', -4.0, -4.3, 1.2);

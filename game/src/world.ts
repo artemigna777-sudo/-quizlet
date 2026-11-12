@@ -102,6 +102,8 @@ export function buildWorld(): World {
     g.strokeStyle = 'rgba(0,0,0,.35)'; g.strokeRect(0.5, 0.5, 31, 31); g.strokeRect(32.5, 0.5, 31, 31);
     g.fillStyle = '#e8e4d8'; g.fillRect(8, 7, 16, 15);
     g.fillStyle = '#2c3f5c'; g.fillRect(10, 9, 5, 11); g.fillRect(17, 9, 5, 11);
+    if (r() < 0.45) { g.fillStyle = '#07080c'; g.beginPath(); g.moveTo(10, 19); g.lineTo(12, 11); g.lineTo(14, 15); g.lineTo(15, 20); g.closePath(); g.fill(); g.strokeStyle = '#a8bccc'; g.beginPath(); g.moveTo(12, 11); g.lineTo(10, 9); g.moveTo(14, 15); g.lineTo(15, 10); g.stroke(); }
+    if (r() < 0.25) { g.fillStyle = '#7a5a36'; g.fillRect(16, 12, 7, 2); g.fillRect(16, 16, 7, 2); }
     g.fillStyle = '#e8e4d8'; g.fillRect(38, 5, 20, 14);
     g.fillStyle = '#2c3f5c'; g.fillRect(40, 7, 16, 10);
     g.fillStyle = pick(['#7a8a96', '#a05a4a', '#5a7a6a', '#8a8068']); g.fillRect(36, 19, 24, 9);

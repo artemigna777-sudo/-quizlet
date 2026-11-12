@@ -11,6 +11,8 @@ export class Player {
   yaw = 0; // 0 — смотрит в −Z
   pitch = 0;
   flashlightOn = true;
+  /** Днём фонарик почти не нужен и не должен слепить. */
+  flashPower = 1;
   /** Сколько прошёл (для шагов и покачивания). */
   stride = 0;
   moving = false;
@@ -77,6 +79,6 @@ export class Player {
 
     this.camera.position.set(this.pos.x, CFG.eye + this.bob, this.pos.z);
     this.camera.rotation.set(this.pitch - 0.25 * this.handK, this.yaw, 0);
-    this.flash.intensity = this.flashlightOn ? 34 : 0;
+    this.flash.intensity = this.flashlightOn ? 34 * this.flashPower : 0;
   }
 }
