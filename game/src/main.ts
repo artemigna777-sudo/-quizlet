@@ -93,6 +93,7 @@ async function boot() {
     const tail = add(new THREE.CylinderGeometry(0.012, 0.02, 0.24, 5), dark, 0, 0.24, -0.2, -0.5);
     murka.userData.tail = tail;
   }
+  murka.scale.setScalar(1.6);
   murka.position.set(-10.3, 0.05, 12.05);
   murka.rotation.y = -0.6;
   murka.visible = false;
