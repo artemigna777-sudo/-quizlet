@@ -20,6 +20,8 @@ export interface World {
   /** Окно ближайшего дома зажигается, когда найдено воспоминание. */
   lightWindow(at: Vec2): void;
   setTime(tod: number): void;
+  /** Тени от солнца и луны (режим «высокое качество»). */
+  setShadows(on: boolean): void;
   update(t: number, cam: THREE.Vector3): void;
 }
 /** Кварталы, которые строят другие модули: двор и магазин. */
@@ -39,7 +41,13 @@ export function buildWorld(): World {
   const fog = (scene.fog = new THREE.Fog(CFG.fog, 3, 38));
   const hemi = new THREE.HemisphereLight(0x5a6488, 0x141218, 0.6);
   const sun = new THREE.DirectionalLight(0x8090c0, 0.4);
-  scene.add(hemi, sun);
+  scene.add(hemi, sun, sun.target);
+  sun.shadow.mapSize.set(1024, 1024);
+  const sc = sun.shadow.camera;
+  sc.left = -34; sc.right = 34; sc.top = 34; sc.bottom = -34; sc.near = 1; sc.far = 140;
+  sun.shadow.bias = -0.0012;
+  sun.shadow.normalBias = 0.06;
+  const sunDir = new THREE.Vector3(-6, 12, 4).normalize();
 
   const half = (CFG.blocks / 2) * CFG.pitch;
   const span = half * 2 + 40;
@@ -57,7 +65,7 @@ export function buildWorld(): World {
     g.strokeStyle = '#2a2a2e';
     g.beginPath(); g.moveTo(10, 0); g.lineTo(18, 20); g.lineTo(12, 40); g.lineTo(22, 64); g.stroke();
   }, [span / 4, span / 4]);
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(span, span), lambert({ map: asphalt }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(span, span, 48, 48), new THREE.MeshLambertMaterial({ map: asphalt }));
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
   const dashV: number[] = [];
@@ -109,8 +117,8 @@ export function buildWorld(): World {
   }, [rx, ry]);
   const roofFlat = lambert({ color: 0x3a3a40 });
   const roofCol = [0x7a3a30, 0x4a5560, 0x5a6a4a, 0x6a4a3a].map((c) => lambert({ color: c }));
-  const grassMat = lambert({ map: canvasTex(32, 32, (g, w, h) => { g.fillStyle = '#56733f'; g.fillRect(0, 0, w, h); for (let i = 0; i < 160; i++) { g.fillStyle = r() < 0.5 ? '#48652f' : '#6a8a4a'; g.fillRect(Math.floor(r() * w), Math.floor(r() * h), 1, 2); } }, [10, 10]) });
-  const slabMat = lambert({ map: canvasTex(32, 32, (g) => { g.fillStyle = '#7c7c80'; g.fillRect(0, 0, 32, 32); g.strokeStyle = '#5a5a5e'; g.strokeRect(0, 0, 32, 32); }, [8, 8]) });
+  const grassMat = new THREE.MeshLambertMaterial({ map: canvasTex(32, 32, (g, w, h) => { g.fillStyle = '#56733f'; g.fillRect(0, 0, w, h); for (let i = 0; i < 160; i++) { g.fillStyle = r() < 0.5 ? '#48652f' : '#6a8a4a'; g.fillRect(Math.floor(r() * w), Math.floor(r() * h), 1, 2); } }, [10, 10]) });
+  const slabMat = new THREE.MeshLambertMaterial({ map: canvasTex(32, 32, (g) => { g.fillStyle = '#7c7c80'; g.fillRect(0, 0, 32, 32); g.strokeStyle = '#5a5a5e'; g.strokeRect(0, 0, 32, 32); }, [8, 8]) });
   const dark = lambert({ color: 0x1c1c20 });
   const metal = lambert({ color: 0x5a5e66 });
 
@@ -408,13 +416,15 @@ export function buildWorld(): World {
     sun.color.copy(sunN).lerp(sunD, day);
     sun.intensity = 0.4 + day * 1.5;
     const a = (tod - 0.25) * Math.PI * 2;
-    if (day > 0.2) sun.position.set(Math.cos(a) * 10, Math.max(2, Math.sin(a) * 12), 5); else sun.position.set(-6, 12, 4);
+    if (day > 0.2) sunDir.set(Math.cos(a) * 10, Math.max(3.5, Math.sin(a) * 12), 5).normalize(); else sunDir.set(-6, 12, 4).normalize();
     sunBall.userData.a = a;
     ashMat.opacity = 1 - day * 0.8;
   };
   setTime(0);
 
   const update = (t: number, cam: THREE.Vector3) => {
+    sun.target.position.set(Math.round(cam.x), 0, Math.round(cam.z));
+    sun.position.copy(sun.target.position).addScaledVector(sunDir, 70);
     const night = day < 0.3;
     const lit: Array<{ l: Lamp; d: number }> = [];
     for (const l of lamps) {
@@ -442,5 +452,5 @@ export function buildWorld(): World {
     wallTex.offset.set(Math.floor(t * 12) * 0.13, Math.floor(t * 12) * 0.31);
   };
 
-  return { scene, boxes, lamps, half, lootSites, nooks, lightWindow, setTime, update };
+  return { scene, boxes, lamps, half, lootSites, nooks, lightWindow, setTime, setShadows: (on) => { sun.castShadow = on; }, update };
 }

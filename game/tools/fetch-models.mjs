@@ -17,9 +17,11 @@ export const MODELS = [
   'russian_food_cans_01', 'cassette_player', 'SchoolDesk_01', 'football', 'rubber_duck_toy', 'handsaw_wood',
   'cross_pein_hammer', 'barrel_03', 'old_tyre', 'trashbag', 'ceramic_vase_01', 'plastic_monobloc_chair_01',
   'standing_chalkboard_01', 'life_jacket', 'painted_wooden_cabinet', 'wooden_crate_02',
+  // Вторая пачка (12.11.2026): плотные комнаты.
+  'ArmChair_01', 'ClassicNightstand_01', 'CoffeeTable_01', 'GreenChair_01', 'Ottoman_01', 'Rockingchair_01', 'Sofa_01', 'WoodenTable_01', 'painted_wooden_chair_02', 'painted_wooden_sofa', 'side_table_01', 'small_wooden_table_01', 'steel_frame_shelves_01', 'vintage_wooden_drawer_01', 'wooden_bookshelf_worn', 'wooden_display_shelves_01', 'worn_metal_rack', 'boombox', 'electric_stove', 'vintage_electric_kettle', 'vintage_grandfather_clock_01', 'vintage_microwave', 'alarm_clock_01', 'brass_pan_01', 'brass_pot_02', 'ceramic_pot', 'jug_01', 'pot_enamel_01', 'wooden_cutting_board', 'croissant', 'long_life_food', 'hanging_industrial_lamp', 'modern_ceiling_lamp_01', 'vintage_oil_lamp', 'fancy_picture_frame_01', 'hanging_picture_frame_02', 'potted_plant_04', 'planter_box_01', 'Ukulele_01', 'throw_pillows_01', 'television_02', 'clipboard', 'stationery_supplies', 'metal_tool_chest', 'bench_vice_01', 'wooden_picnic_table', 'WetFloorSign_01', 'CashRegister_01', 'dartboard', 'lifebuoy', 'metal_jug', 'planter_pot_clay', 'ceramic_vase_03', 'standing_picture_frame_02', 'carved_wooden_plate', 'round_wooden_table_01', 'vintage_binocular', 'concrete_cat_statue',
 ];
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'models');
-const TEX = 256;
+const TEX = 384;
 const get = (url) => execFileSync('curl', ['-sS', '-L', '--fail', '-m', '120', url], { maxBuffer: 1 << 28 });
 
 const only = process.argv.slice(2);

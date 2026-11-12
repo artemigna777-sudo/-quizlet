@@ -37,7 +37,8 @@ const MODELS = ['Shelf_01', 'wooden_table_02', 'painted_wooden_nightstand', 'pai
   'painted_wooden_stool', 'painted_wooden_chair_01', 'painted_wooden_cabinet_02', 'dining_table', 'Television_01', 'vintage_day_bed', 'sofa_02',
   'wall_clock', 'hanging_picture_frame_01', 'standing_picture_frame_01', 'russian_food_cans_01', 'cassette_player', 'SchoolDesk_01', 'football',
   'rubber_duck_toy', 'handsaw_wood', 'cross_pein_hammer', 'barrel_03', 'old_tyre', 'trashbag', 'ceramic_vase_01', 'plastic_monobloc_chair_01',
-  'standing_chalkboard_01', 'life_jacket', 'painted_wooden_cabinet', 'wooden_crate_02'] as const;
+  'standing_chalkboard_01', 'life_jacket', 'painted_wooden_cabinet', 'wooden_crate_02',
+  'ArmChair_01', 'ClassicNightstand_01', 'CoffeeTable_01', 'GreenChair_01', 'Ottoman_01', 'Rockingchair_01', 'Sofa_01', 'WoodenTable_01', 'painted_wooden_chair_02', 'painted_wooden_sofa', 'side_table_01', 'small_wooden_table_01', 'steel_frame_shelves_01', 'vintage_wooden_drawer_01', 'wooden_bookshelf_worn', 'wooden_display_shelves_01', 'worn_metal_rack', 'boombox', 'electric_stove', 'vintage_electric_kettle', 'vintage_grandfather_clock_01', 'vintage_microwave', 'alarm_clock_01', 'brass_pan_01', 'brass_pot_02', 'ceramic_pot', 'jug_01', 'pot_enamel_01', 'wooden_cutting_board', 'croissant', 'long_life_food', 'hanging_industrial_lamp', 'modern_ceiling_lamp_01', 'vintage_oil_lamp', 'fancy_picture_frame_01', 'hanging_picture_frame_02', 'potted_plant_04', 'planter_box_01', 'Ukulele_01', 'throw_pillows_01', 'television_02', 'clipboard', 'stationery_supplies', 'metal_tool_chest', 'bench_vice_01', 'wooden_picnic_table', 'WetFloorSign_01', 'CashRegister_01', 'dartboard', 'lifebuoy', 'metal_jug', 'planter_pot_clay', 'ceramic_vase_03', 'standing_picture_frame_02', 'carved_wooden_plate', 'round_wooden_table_01', 'vintage_binocular', 'concrete_cat_statue'] as const;
 type ModelId = (typeof MODELS)[number];
 const Q = Math.PI / 2;
 
@@ -61,7 +62,7 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     for (let y = 0; y < h; y += 8) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); for (let x = (y / 8) % 2 ? 0 : 8; x < w; x += 16) { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + 8); g.stroke(); } }
     noise(g, w, h, 80, 0.12);
   }, [5, 1.5]);
-  const floorMat = lambert({ map: canvasTex(32, 32, (g, w, h) => {
+  const floorMat = new THREE.MeshLambertMaterial({ map: canvasTex(32, 32, (g, w, h) => {
     g.fillStyle = '#4a3a2a'; g.fillRect(0, 0, w, h);
     g.strokeStyle = '#2c2218';
     for (let x = 0; x < w; x += 8) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
@@ -145,7 +146,7 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     wall(2.7, -0.6, 4.75, -0.4, -1);
     wall(1.5, -0.6, 2.7, -0.4, -1, 2.1, H, false);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(9.5, 9.5), floorMat);
-    floor.rotation.x = -Q; floor.position.y = FLOOR + 0.01;
+    floor.rotation.x = -Q; floor.position.y = FLOOR + 0.02;
     const ceil = new THREE.Mesh(new THREE.PlaneGeometry(9.5, 9.5), ceilMat);
     ceil.rotation.x = Q; ceil.position.y = H;
     const hh = [6, 9, 6, 12][def.num - 1];
@@ -163,7 +164,7 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     const shadeMat = lambert({ color: 0x8a6a4a, side: THREE.DoubleSide });
     for (const [x, z, w, d] of [[0.3, 2.3, 3.2, 2.1], [-0.6, -1.5, 2.4, 1.4]]) {
       const rug = new THREE.Mesh(new THREE.PlaneGeometry(w, d), rugMat);
-      rug.rotation.x = -Q; rug.position.set(x, FLOOR + 0.02, z);
+      rug.rotation.x = -Q; rug.position.set(x, FLOOR + 0.035, z);
       const cord = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.45, 0.02), ceilMat);
       cord.position.set(x, H - 0.22, z);
       const shade = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.24, 6, 1, true), shadeMat);
@@ -232,6 +233,8 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       }
       return obj;
     };
+    /** Поставить вещь на мебель: высота — по модели-опоре. */
+    const on = (room: THREE.Group, base: ModelId, id: ModelId, x: number, z: number, rot = 0, k = 1, baseK = 1) => put(room, id, x, z, rot, { y: protos.get(base)!.size.y * baseK + 0.005, s: k, solid: false });
     const prim = (room: THREE.Group, geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, FLOOR + y, z); room.add(m); return m; };
     const note = (id: string, x: number, z: number, y: number, wallRot?: number) => {
       const n = def.notes.find((v) => v.id === id)!;
@@ -257,6 +260,21 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(A, 'wall_clock', 0, -0.37, 0, { y: 1.9 });
       put(A, 'standing_chalkboard_01', -3.5, 3.7, 2.4);
       put(A, 'hanging_picture_frame_01', 4.72, 0.6, -Q, { y: 1.3 });
+      put(A, 'ArmChair_01', 2.1, 3.9, Math.PI);
+      put(A, 'CoffeeTable_01', -2.9, 1.2, Q);
+      on(A, 'CoffeeTable_01', 'jug_01', -2.9, 0.9, 1);
+      on(A, 'CoffeeTable_01', 'carved_wooden_plate', -2.9, 1.5);
+      put(A, 'vintage_grandfather_clock_01', -1.2, -0.02, 0);
+      put(A, 'wooden_bookshelf_worn', 3.9, -0.08, 0);
+      put(A, 'throw_pillows_01', -4.2, 1.2, Q, { y: 0.42, s: 0.8, solid: false });
+      put(A, 'Ukulele_01', 4.55, 4.3, 0.4, { rx: -0.25, solid: false });
+      put(A, 'side_table_01', -4.35, 3.0, Q);
+      on(A, 'side_table_01', 'vintage_oil_lamp', -4.35, 3.0, 0, 0.6);
+      on(A, 'wooden_table_02', 'pot_enamel_01', 4.2, 2.2, 2);
+      on(A, 'wooden_table_02', 'potted_plant_04', 4.4, 3.2, 0, 1.4);
+      put(A, 'fancy_picture_frame_01', -4.72, 0.6, Q, { y: 1.5 });
+      put(A, 'hanging_picture_frame_02', 1.9, 4.72, Math.PI, { y: 1.6 });
+      put(A, 'Ottoman_01', 1.0, 2.6, 0.3);
       note('n-sept', -3.25, 3.42, 1.05, 2.4 - Math.PI);
       note('n-nov', 4.15, 2.3, 0.82);
       note('n-zoya', 1.2, 4.72, 1.4, Math.PI);
@@ -278,6 +296,16 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(B, 'vintage_day_bed', 4.25, -2.7, -Q);
       put(B, 'hanging_picture_frame_01', 2.4, -4.72, 0, { y: 1.3 });
       put(B, 'painted_wooden_shelves', -4.5, -4.3, Q);
+      put(B, 'wooden_display_shelves_01', -2.3, -4.5, 0);
+      put(B, 'Rockingchair_01', 2.4, -1.7, -0.7);
+      put(B, 'ClassicNightstand_01', 4.4, -4.3, -Q);
+      on(B, 'ClassicNightstand_01', 'alarm_clock_01', 4.4, -4.3, -Q);
+      put(B, 'hanging_picture_frame_02', -4.72, -2.4, Q, { y: 1.6 });
+      put(B, 'ceramic_vase_03', 0.55, -4.5, 0, { y: 1.15, solid: false });
+      put(B, 'stationery_supplies', -3.2, -2.4, 1, { y: 0.76, solid: false });
+      put(B, 'clipboard', -3.25, -2.9, 0.4, { y: 0.76, rx: -Q, solid: false });
+      put(B, 'throw_pillows_01', 4.25, -2.7, -Q, { y: 0.5, s: 0.8, solid: false });
+      put(B, 'planter_pot_clay', -4.4, -1.0);
       note('n-last', -0.45, -4.4, 1.17);
     } else if (def.id === 'zoya') {
       put(A, 'dining_table', -3.6, 2.0, Q);
@@ -291,6 +319,21 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       // Четыре миски у порога — по числу кошек; своей нет только у Мурки.
       [0x7a8a6a, 0x8a6a5a, 0x6a7a8a].forEach((c, i) => bowl(A, -1.6 - i * 0.45, 4.3, 0.02, c));
       put(A, 'wall_clock', -1.5, -0.37, 0, { y: 1.9 });
+      put(A, 'electric_stove', -0.3, -0.08, 0);
+      on(A, 'electric_stove', 'pot_enamel_01', -0.3, -0.1, 0.5);
+      put(A, 'wooden_display_shelves_01', 0.8, -0.2, 0);
+      on(A, 'dining_table', 'vintage_electric_kettle', -3.8, 1.4, 1);
+      on(A, 'dining_table', 'wooden_cutting_board', -3.5, 2.3, 0.3);
+      on(A, 'dining_table', 'croissant', -3.5, 2.3, 1);
+      on(A, 'dining_table', 'jug_01', -3.9, 2.1, 2);
+      put(A, 'brass_pan_01', -2.2, -0.36, 0, { y: 1.5, solid: false });
+      put(A, 'ceramic_pot', -4.3, 4.2, 0);
+      put(A, 'concrete_cat_statue', -0.9, 4.35, 2.6, { solid: false });
+      put(A, 'GreenChair_01', 2.4, 3.6, -2.2);
+      put(A, 'small_wooden_table_01', 2.9, 4.3, 0);
+      on(A, 'small_wooden_table_01', 'potted_plant_04', 2.9, 4.3, 0, 1.4);
+      put(A, 'long_life_food', 0.8, -0.2, 0, { y: 0.8, s: 0.7, solid: false });
+      put(A, 'fancy_picture_frame_01', -4.72, 3.9, Q, { y: 1.55 });
       note('z-book', -3.5, 1.6, 0.9);
       loot('food', 'килька в томате', 'A', -3.3, 2.9, 0.9);
       loot('water', 'бидон с водой', 'A', 3.6, 0.6, 0);
@@ -303,6 +346,16 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(B, 'painted_wooden_cabinet_02', 3.6, -4.35, 0, { s: 0.9 });
       put(B, 'painted_wooden_shelves', 0, -4.5, 0);
       put(B, 'painted_wooden_chair_01', -1.4, -4.3, 0);
+      put(B, 'Ottoman_01', -2.7, -2.6, 0);
+      put(B, 'ClassicNightstand_01', -4.4, -4.1, Q);
+      on(B, 'ClassicNightstand_01', 'vintage_oil_lamp', -4.4, -4.1, 0, 0.6);
+      put(B, 'ArmChair_01', 2.0, -1.5, -2.4);
+      put(B, 'fancy_picture_frame_01', 1.6, -4.72, 0, { y: 1.6 });
+      put(B, 'throw_pillows_01', -4.25, -2.6, Q, { y: 0.5, s: 0.8, solid: false });
+      put(B, 'metal_jug', 4.4, -1.0);
+      put(B, 'standing_picture_frame_02', 0.15, -4.5, 0, { y: 0.78, solid: false });
+      put(B, 'side_table_01', 4.3, -2.4, -Q);
+      on(B, 'side_table_01', 'alarm_clock_01', 4.3, -2.4, -Q);
       note('z-last', -4.3, -1.4, 0.68);
       const tin = prim(B, new THREE.CylinderGeometry(0.09, 0.09, 0.16, 8), basic(0xb04a3a), 0, 1.13 + 0.08, -4.5);
       item('key', tin, 0, -4.2);
@@ -316,6 +369,17 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(A, 'Shelf_01', -2.4, -0.2, 0);
       put(A, 'wooden_crate_02', -4.2, 4.1, Q, { s: 0.7 });
       put(A, 'hanging_picture_frame_01', -4.72, 2.0, Q, { y: 1.5 });
+      put(A, 'CoffeeTable_01', -2.9, 2.0, Q);
+      on(A, 'CoffeeTable_01', 'boombox', -2.9, 2.0, Q);
+      put(A, 'worn_metal_rack', 0.3, -0.08, 0);
+      put(A, 'lifebuoy', -4.7, 3.7, Q, { y: 1.3 });
+      put(A, 'dartboard', -1.0, -0.37, 0, { y: 1.6 });
+      on(A, 'painted_wooden_table', 'brass_pot_02', 3.4, 3.2);
+      on(A, 'painted_wooden_table', 'long_life_food', 2.6, 3.6, 0.4, 0.7);
+      put(A, 'Rockingchair_01', 0.8, 2.4, 2.2);
+      put(A, 'planter_pot_clay', 4.4, 4.4);
+      put(A, 'throw_pillows_01', -4.2, 2.0, Q, { y: 0.42, s: 0.8, solid: false });
+      put(A, 'hanging_picture_frame_02', 3.2, 4.72, Math.PI, { y: 1.7 });
       note('g-bills', -4.2, 4.1, 0.36);
       loot('food', 'тушёнка', 'A', 3.9, 3.6, 0.98);
       loot('water', 'канистра воды', 'B', -4.3, -2.2, 0);
@@ -344,6 +408,12 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(B, 'life_jacket', 3.0, -4.66, 0, { y: 0.9 });
       put(B, 'life_jacket', 3.9, -4.66, 0, { y: 0.9 });
       put(B, 'painted_wooden_stool', 2.6, -3.4);
+      put(B, 'metal_tool_chest', 3.5, -3.7, 0.2);
+      on(B, 'wooden_table_02', 'bench_vice_01', 4.35, -2.0, -Q);
+      put(B, 'steel_frame_shelves_01', -4.45, -3.2, Q);
+      put(B, 'hanging_industrial_lamp', -1.0, -3.0, 0, { y: 1.5, solid: false });
+      put(B, 'metal_jug', 2.2, -4.4);
+      put(B, 'WetFloorSign_01', 1.9, -1.2, 0.5, { solid: false });
       note('g-reply', 0.2, -2.12, 0.8, 0);
       note('g-vests', 3.45, -4.7, 1.2, 0);
       const bino = new THREE.Group();
@@ -360,6 +430,17 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(A, 'vintage_day_bed', 4.25, 1.8, -Q);
       put(A, 'painted_wooden_bench', -2.4, -0.1, 0);
       put(A, 'hanging_picture_frame_01', -0.4, -0.38, 0, { y: 1.4 });
+      put(A, 'small_wooden_table_01', 0.3, -0.1, 0);
+      on(A, 'small_wooden_table_01', 'television_02', 0.3, -0.1, 0);
+      put(A, 'painted_wooden_chair_02', -3.4, 3.4, -Q);
+      put(A, 'side_table_01', 4.35, 3.5, -Q);
+      on(A, 'side_table_01', 'alarm_clock_01', 4.35, 3.5, -Q);
+      put(A, 'Ottoman_01', 1.6, 2.8, 0.5);
+      put(A, 'throw_pillows_01', 4.25, 1.8, -Q, { y: 0.5, s: 0.8, solid: false });
+      put(A, 'stationery_supplies', -4.3, 3.0, 0.6, { y: 0.76, solid: false });
+      put(A, 'dartboard', 4.72, 0.2, -Q, { y: 1.6 });
+      put(A, 'boombox', -4.5, 1.2, Q, { y: 0.78, s: 0.6, solid: false });
+      put(A, 'wooden_display_shelves_01', -4.55, -0.1 + 0.6, Q);
       note('t-spy', -4.15, 3.1, 0.8);
       loot('food', 'сухарики', 'A', 3.3, 1.2, 0.02);
       loot('water', 'банка компота', 'B', -4.0, -4.3, 1.2);
@@ -377,12 +458,26 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(B, 'painted_wooden_cabinet', -4.0, -4.35, 0);
       put(B, 'wall_clock', 2.4, -4.72, 0, { y: 1.9 });
       put(B, 'Shelf_01', 4.6, -2.6, -Q);
+      put(B, 'electric_stove', -2.7, -4.42, 0);
+      on(B, 'electric_stove', 'brass_pot_02', -2.7, -4.45);
+      put(B, 'ClassicNightstand_01', -1.9, -4.5, 0);
+      on(B, 'ClassicNightstand_01', 'vintage_microwave', -1.9, -4.5, 0, 0.5);
+      on(B, 'dining_table', 'jug_01', 0.2, -3.0);
+      on(B, 'dining_table', 'wooden_cutting_board', -0.75, -3.25, 0.4);
+      on(B, 'dining_table', 'croissant', -0.75, -3.25, 1);
+      put(B, 'ceramic_pot', 4.3, -4.3);
+      put(B, 'long_life_food', 4.55, -2.6, -Q, { y: 0.9, s: 0.7, solid: false });
+      put(B, 'fancy_picture_frame_01', -4.72, -2.4, Q, { y: 1.6 });
+      put(B, 'potted_plant_04', -4.0, -4.3, 0, { y: 1.57, s: 1.4, solid: false });
       note('t-essay', -0.1, -2.85, 0.9);
       note('t-x', -4.0, -3.95, 1.58 - 0.38);
       const metro = prim(B, new THREE.ConeGeometry(0.1, 0.26, 4), basic(0x8a5a2a), 0.75, 0.88 + 0.13, -3.2);
       item('metro', metro, 0.75, -3.2);
     }
 
+    put(A, 'planter_pot_clay', 1.5, 5.45, def.num, { solid: false });
+    put(A, 'planter_box_01', 3.0, 5.35, 0, { solid: false });
+    if (def.num % 2) put(A, 'planter_box_01', -3.2, 5.35, 0, { solid: false });
     // Стёртая комната: серые силуэты и помехи в дверном проёме.
     const saved = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
     B.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { saved.set(m, m.material); m.material = ghostMat; } });
@@ -413,6 +508,9 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
   yard('old_tyre', -2.2, 2.4, 0.3, false);
   yard('plastic_monobloc_chair_01', 1.2, 1.0, 2.2);
   yard('wooden_crate_02', -1.9, -2.4, 0.2, false);
+  yard('planter_box_01', 2.5, -0.4, Q, false);
+  yard('WetFloorSign_01', -0.6, -0.9, 0.7, false);
+  yard('metal_jug', -2.4, -1.4, 0, false);
   const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 0.5, 8), lambert({ color: 0x6a4a30 }));
   stump.position.set(0.4, FLOOR + 0.25, 2.7);
   scene.add(stump);

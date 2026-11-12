@@ -46,6 +46,9 @@ export class Player {
     this.hand.visible = false;
   }
 
+  /** Тень от фонарика (режим «высокое качество»). */
+  setShadows(on: boolean) { this.flash.castShadow = on; this.flash.shadow.mapSize.set(512, 512); this.flash.shadow.bias = -0.002; this.flash.shadow.camera.near = 0.3; }
+
   /** Направление взгляда по земле. */
   forward(): Vec2 { return { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) }; }
 

@@ -41,6 +41,8 @@ async function boot() {
   const canvas = $<HTMLCanvasElement>('view');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(1);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   const world = buildWorld();
   const player = new Player();
   const dog = new Dog();
@@ -89,15 +91,32 @@ async function boot() {
   let growlT = 0;
   let drops = 0;
 
+  // Качество: «высокое» — чётче и с тенями, «обычное» — для слабых телефонов. Игра сама понижает его, если тормозит.
+  const QKEY = 'erased-town:quality';
+  let chosen: string | null = null;
+  try { chosen = localStorage.getItem(QKEY); } catch { /* приватный режим */ }
+  let high = chosen !== 'low';
+  let probeT = 0, probeN = 0;
+  world.scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && !(m.material instanceof THREE.MeshBasicMaterial)) { m.castShadow = true; m.receiveShadow = true; }
+  });
+  const applyQuality = () => {
+    world.setShadows(high);
+    player.setShadows(high);
+    $('quality').textContent = `КАЧЕСТВО: ${high ? 'ВЫСОКОЕ' : 'ОБЫЧНОЕ'}`;
+    resize();
+  };
   const resize = () => {
     const w = innerWidth, h = innerHeight;
-    const k = Math.max(1, Math.min(w, h) / CFG.pixels);
+    const k = Math.max(1, Math.min(w, h) / (high ? 480 : CFG.pixels));
     renderer.setSize(Math.round(w / k), Math.round(h / k), false);
     player.camera.aspect = w / h;
     player.camera.updateProjectionMatrix();
   };
   addEventListener('resize', resize);
-  resize();
+  applyQuality();
+  $('quality').onclick = () => { high = !high; chosen = high ? 'high' : 'low'; try { localStorage.setItem(QKEY, chosen); } catch { /* приватный режим */ } applyQuality(); };
 
   const show = (id: string, on: boolean) => $(id).classList.toggle('on', on);
   const toast = (text: string, sec = 4) => { const t = $('toast'); t.textContent = text; t.style.opacity = '1'; toastT = sec; };
@@ -260,7 +279,8 @@ async function boot() {
   const clock = new THREE.Clock();
   let t = 0;
   const frame = () => {
-    const dt = Math.min(0.05, clock.getDelta());
+    const raw = clock.getDelta();
+    const dt = Math.min(0.05, raw);
     t += dt;
     const look = input.frame();
     const portrait = input.touch && innerHeight > innerWidth;
@@ -270,6 +290,11 @@ async function boot() {
     let zoom = false;
     if (playing) {
       playT += dt;
+      // Первые секунды игры меряем скорость: если кадров мало — переходим на обычное качество.
+      if (high && !chosen && probeN >= 0) {
+        probeT += raw; probeN++;
+        if (probeT > 5) { if (probeN / probeT < 26) { high = false; applyQuality(); toast('Качество понижено, чтобы игра шла плавно. Вернуть можно в паузе.', 5); } probeN = -1; }
+      }
       st.tod = advanceClock(st.tod, dt);
       if (input.hit('KeyF')) { player.flashlightOn = !player.flashlightOn; sound.click(); }
       player.update(dt, input, look, world.boxes, world.half, false);
@@ -393,6 +418,7 @@ async function boot() {
     get st() { return st; }, get spot() { return spot; },
     setTime(v: number) { st.tod = v; }, setVit(v: Partial<Vitals>) { st.vit = { ...st.vit, ...v }; },
     start: startGame,
+    setQuality(h: boolean) { high = h; applyQuality(); },
   };
 }
 

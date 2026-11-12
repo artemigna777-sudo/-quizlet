@@ -20,7 +20,9 @@ export function loadModel(id: string): Promise<Proto> {
         mesh.material = ps1(new THREE.MeshLambertMaterial({ map, color: map ? 0xffffff : src.color, side: src.side, transparent: src.transparent, alphaTest: src.transparent ? 0.5 : 0 }));
       });
       // Ставим на пол и центрируем: модель стоит в (0, 0, 0) своей группы.
-      const box = new THREE.Box3().setFromObject(gltf.scene);
+      let box = new THREE.Box3().setFromObject(gltf.scene);
+      // Некоторые модели сохранены в сантиметрах — приводим к метрам.
+      if (Math.max(...box.getSize(new THREE.Vector3()).toArray()) > 6) { gltf.scene.scale.setScalar(0.1); box = new THREE.Box3().setFromObject(gltf.scene); }
       const c = box.getCenter(new THREE.Vector3());
       gltf.scene.position.set(-c.x, -box.min.y, -c.z);
       const root = new THREE.Group();

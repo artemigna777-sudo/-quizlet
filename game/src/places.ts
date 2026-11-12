@@ -11,7 +11,7 @@ import { SHOP } from './world';
 export const POST: Vec2 = { x: -57.5, z: -57.5 };
 
 export async function buildPlaces(scene: THREE.Scene, boxes: Box[], lootSites: readonly Vec2[]): Promise<{ spots: Spot[]; inside(p: Vec2): boolean; drop(id: string, kind: LootKind, at: Vec2): Spot }> {
-  const [shelf, table, crate, barrel] = await Promise.all(['Shelf_01', 'painted_wooden_table', 'wooden_crate_02', 'barrel_03'].map(loadModel));
+  const [shelf, table, crate, barrel, cash, rack, wet] = await Promise.all(['Shelf_01', 'painted_wooden_table', 'wooden_crate_02', 'barrel_03', 'CashRegister_01', 'steel_frame_shelves_01', 'WetFloorSign_01'].map(loadModel));
   const r = rng(555);
   const spots: Spot[] = [];
   const solid = (x0: number, z0: number, x1: number, z1: number) => boxes.push({ minX: Math.min(x0, x1), maxX: Math.max(x0, x1), minZ: Math.min(z0, z1), maxZ: Math.max(z0, z1) });
@@ -34,8 +34,8 @@ export async function buildPlaces(scene: THREE.Scene, boxes: Box[], lootSites: r
   };
   wall(X0, Z0, X1, Z0 + 0.25); wall(X0, Z1 - 0.25, X1, Z1); wall(X1 - 0.25, Z0, X1, Z1);
   wall(X0, Z0, X0 + 0.25, -0.8); wall(X0, 0.8, X0 + 0.25, Z1); wall(X0, -0.8, X0 + 0.25, 0.8, 2.2, H, false);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(X1 - X0, Z1 - Z0), lambert({ map: canvasTex(16, 16, (g) => { g.fillStyle = '#c8c0a8'; g.fillRect(0, 0, 16, 16); g.fillStyle = '#8a8474'; g.fillRect(0, 0, 8, 8); g.fillRect(8, 8, 8, 8); }, [10, 9]) }));
-  floor.rotation.x = -Math.PI / 2; floor.position.set((X0 + X1) / 2, F + 0.01, 0);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(X1 - X0, Z1 - Z0), new THREE.MeshLambertMaterial({ map: canvasTex(16, 16, (g) => { g.fillStyle = '#c8c0a8'; g.fillRect(0, 0, 16, 16); g.fillStyle = '#8a8474'; g.fillRect(0, 0, 8, 8); g.fillRect(8, 8, 8, 8); }, [10, 9]) }));
+  floor.rotation.x = -Math.PI / 2; floor.position.set((X0 + X1) / 2, F + 0.02, 0);
   const ceil = new THREE.Mesh(new THREE.BoxGeometry(X1 - X0 + 0.6, 0.3, Z1 - Z0 + 0.6), lambert({ color: 0x55565c }));
   ceil.position.set((X0 + X1) / 2, H + 0.15, 0);
   const signTex = canvasTex(128, 24, (g) => { g.fillStyle = '#b8322a'; g.fillRect(0, 0, 128, 24); g.fillStyle = '#fff'; g.font = '700 18px sans-serif'; g.textAlign = 'center'; g.fillText('ПРОДУКТЫ', 64, 18); });
@@ -59,9 +59,11 @@ export async function buildPlaces(scene: THREE.Scene, boxes: Box[], lootSites: r
   counter.position.set(X0 + 2.2, F, 3.4); counter.rotation.y = Math.PI / 2;
   scene.add(counter);
   solid(X0 + 1.6, 2.2, X0 + 2.8, 4.6);
-  const till = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.4), lambert({ color: 0x3a3a44 }));
-  till.position.set(X0 + 2.2, F + 1.1, 3.0);
-  scene.add(till);
+  const till = cash.root.clone();
+  till.position.set(X0 + 2.2, F + table.size.y, 3.0); till.rotation.y = Math.PI / 2;
+  const sgn = wet.root.clone(); sgn.position.set(X0 + 2.6, F, -0.9); sgn.rotation.y = 0.4;
+  scene.add(till, sgn);
+  for (const z of [-4.2, -2.4]) { const k = rack.root.clone(); k.position.set(X1 - 0.6, F, z); k.rotation.y = -Math.PI / 2; scene.add(k); solid(X1 - 0.9, z - 0.55, X1 - 0.3, z + 0.55); }
   for (const [x, z] of [[X1 - 1.2, 2.5], [X1 - 1.4, -3.2]]) { const c = crate.root.clone(); c.position.set(x, F, z); c.rotation.y = r() * 3; scene.add(c); solid(x - 0.5, z - 0.5, x + 0.5, z + 0.5); }
   const b = barrel.root.clone(); b.position.set(X1 - 1.1, F, 4.6); scene.add(b); solid(X1 - 1.45, 4.25, X1 - 0.75, 4.95);
   ([['food', 3.4, 0.62, 'тушёнка'], ['food', 7.6, 1.02, 'сгущёнка'], ['water', 11.8, 0.62, 'минералка'], ['food', 9.7, 1.42, 'шпроты']] as const).forEach(([k, dx, y, n], i) => loot(`loot:shop:n${i}`, k, X0 + dx, F + y, Z0 + 0.42, { x: X0 + dx, z: Z0 + 1.0 }, n));

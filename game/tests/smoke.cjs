@@ -11,6 +11,7 @@ const path = require('path');
   try {
     // Компьютер.
     const p = await b.newPage({ viewport: { width: 960, height: 540 } });
+    await p.addInitScript(() => localStorage.setItem('erased-town:quality', 'low'));
     p.on('pageerror', (e) => errors.push('ERR ' + e.message));
     p.on('console', (m) => { if (m.type() === 'error') errors.push('CON ' + m.text()); });
     await p.goto('http://localhost:4317/');
@@ -72,6 +73,24 @@ const path = require('path');
     await at(5.9, -7.0, Math.PI - 0.5, -0.3); await shot(p, '21-tema-kitchen');
     await at(10.1, 7.0, -0.9, -0.2); await shot(p, '22-nina-music');
     await at(0, 4.5, 0, -0.2); await shot(p, '23-yard');
+    // Высокое качество: тени.
+    await p.evaluate(() => { window.__game.setQuality(true); window.__game.setTime(0.42); });
+    await at(8, 12.2, 0.5, -0.1); await p.waitForTimeout(1500); await shot(p, '50-hq-nina');
+    await at(8.6, 11.5, -1.2, -0.2); await shot(p, '51-hq-nina-right');
+    await at(-8, 12, 0.8, -0.2); await shot(p, '52-hq-zoya-kitchen');
+    await at(-5.9, 6.6, 0.9, -0.15); await shot(p, '53-hq-zoya-bedroom');
+    await p.evaluate(() => ['gena', 'tema', 'nina'].forEach((h) => window.__game.homes.reveal(h)));
+    await at(-8, -12.3, Math.PI + 0.6, -0.15); await shot(p, '54-hq-gena-room');
+    await at(-10.2, -7.0, Math.PI - 0.9, -0.2); await shot(p, '55-hq-gena-workshop');
+    await at(8, -12.3, Math.PI - 0.7, -0.15); await shot(p, '56-hq-tema-room');
+    await at(8, -12.3, Math.PI + 0.7, -0.15); await shot(p, '56b-hq-tema-room2');
+    await at(5.9, -7.0, Math.PI - 0.5, -0.3); await shot(p, '57-hq-tema-kitchen');
+    await at(10.1, 7.0, -0.9, -0.2); await shot(p, '58-hq-nina-music');
+    await at(0, 18, 0, 0.05); await shot(p, '59-hq-yard');
+    await at(18, 30, 0, 0); await shot(p, '60-hq-street');
+    await p.evaluate(() => { window.__game.setTime(0.95); });
+    await at(8, 12.2, 0.5, -0.1); await shot(p, '61-hq-night-room');
+    await p.evaluate(() => window.__game.setQuality(false));
     // Город днём: районы.
     await p.evaluate(() => window.__game.setTime(0.5));
     await at(18, 30, 0, 0); await shot(p, '30-day-street');

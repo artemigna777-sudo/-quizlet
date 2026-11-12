@@ -61,6 +61,7 @@ export class Enemies {
   private add(kind: Kind, pos: Vec2) {
     const { g, mat } = figure(kind);
     g.position.set(pos.x, 0, pos.z);
+    g.traverse((o) => { o.castShadow = true; });
     this.scene.add(g);
     this.list.push({ kind, mesh: g, mat, pos: { ...pos }, hp: kind === 'echo' ? 100 : 60, aware: false, cool: 0.6, stun: 0, dying: 0, dir: Math.random() * 6.28, turnT: 0, rush: 0, gait: 0 });
   }
