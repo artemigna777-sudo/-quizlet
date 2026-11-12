@@ -11,7 +11,7 @@ const path = require('path');
   try {
     // Компьютер.
     const p = await b.newPage({ viewport: { width: 960, height: 540 } });
-    await p.addInitScript(() => localStorage.setItem('erased-town:quality', 'low'));
+    await p.addInitScript(() => { localStorage.setItem('erased-town:quality', 'low'); window.__noCine = true; });
     p.on('pageerror', (e) => errors.push('ERR ' + e.message));
     p.on('console', (m) => { if (m.type() === 'error') errors.push('CON ' + m.text()); });
     await p.goto('http://localhost:4317/');
@@ -73,6 +73,20 @@ const path = require('path');
     await at(5.9, -7.0, Math.PI - 0.5, -0.3); await shot(p, '21-tema-kitchen');
     await at(10.1, 7.0, -0.9, -0.2); await shot(p, '22-nina-music');
     await at(0, 4.5, 0, -0.2); await shot(p, '23-yard');
+    // Сценки, Тузик и дома снаружи.
+    await p.evaluate(() => { window.__game.setQuality(true); window.__game.setTime(0.4); window.__game.playIntro(); });
+    await p.waitForTimeout(2500); await shot(p, '70-intro-1');
+    await p.waitForTimeout(4500); await shot(p, '71-intro-2');
+    await p.waitForTimeout(4500); await shot(p, '72-intro-3');
+    await p.evaluate(() => window.__game.cine.skip());
+    await p.evaluate(() => { window.__game.setTime(0.95); window.__game.player.pos = { x: 18, z: 8 }; window.__game.playNight(); });
+    await p.waitForTimeout(6000); await shot(p, '73-night-scene');
+    await p.evaluate(() => { window.__game.cine.skip(); window.__game.enemies.clear(); window.__game.setTime(0.4); });
+    await at(0, 19.5, 0.35, -0.05); await shot(p, '74-houses-front');
+    await at(10.5, 16, 0.5, 0.25); await shot(p, '75-house-close');
+    await p.evaluate(() => { const g = window.__game; g.player.pos = { x: 18, z: 14 }; g.dog.pos = { x: 17.2, z: 12.6 }; g.player.yaw = 0.52; g.player.pitch = -0.45; });
+    await p.waitForTimeout(300); await shot(p, '76-tuzik');
+    await at(56, 18, -1.57, 0); await shot(p, '77-wall');
     // Высокое качество: тени.
     await p.evaluate(() => { window.__game.setQuality(true); window.__game.setTime(0.42); });
     await at(8, 12.2, 0.5, -0.1); await p.waitForTimeout(1500); await shot(p, '50-hq-nina');

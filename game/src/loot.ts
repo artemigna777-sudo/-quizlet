@@ -2,8 +2,8 @@
 import * as THREE from 'three';
 import { lambert } from './gfx';
 
-export type LootKind = 'food' | 'water' | 'ammo' | 'axe' | 'gun';
-export const LOOT_NAME: Record<LootKind, string> = { food: 'консервы', water: 'вода', ammo: 'патроны', axe: 'топор', gun: 'автомат' };
+export type LootKind = 'food' | 'water' | 'ammo' | 'axe' | 'gun' | 'parts';
+export const LOOT_NAME: Record<LootKind, string> = { food: 'консервы', water: 'вода', ammo: 'патроны', axe: 'топор', gun: 'автомат', parts: 'детали' };
 const basic = (color: number) => new THREE.MeshBasicMaterial({ color });
 const part = (g: THREE.Group, geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); g.add(m); return m; };
 
@@ -37,6 +37,10 @@ export function lootMesh(kind: LootKind): THREE.Group {
   } else if (kind === 'ammo') {
     part(g, new THREE.BoxGeometry(0.2, 0.1, 0.12), basic(0x5a6a3a), 0, 0.05, 0);
     part(g, new THREE.BoxGeometry(0.2, 0.02, 0.12), basic(0xc8b060), 0, 0.11, 0);
+  } else if (kind === 'parts') {
+    part(g, new THREE.CylinderGeometry(0.07, 0.07, 0.03, 8), basic(0xc8a040), 0, 0.02, 0);
+    part(g, new THREE.CylinderGeometry(0.045, 0.045, 0.03, 8), basic(0x9aa0a8), 0.1, 0.02, 0.05);
+    part(g, new THREE.BoxGeometry(0.03, 0.03, 0.16), basic(0x9aa0a8), -0.07, 0.02, 0.08);
   } else if (kind === 'axe') {
     const a = axeMesh(); a.scale.setScalar(1.3); a.position.y = 0.42; a.rotation.z = 0.5; g.add(a);
   } else {

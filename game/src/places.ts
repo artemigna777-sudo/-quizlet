@@ -92,7 +92,7 @@ export async function buildPlaces(scene: THREE.Scene, boxes: Box[], lootSites: r
     c.scale.setScalar(0.55); c.position.set(s.x, 0.05, s.z); c.rotation.y = r() * 3;
     scene.add(c);
     const k = r();
-    loot(`loot:w:${i}`, k < 0.42 ? 'food' : k < 0.8 ? 'water' : 'ammo', s.x, 0.05 + 0.27, s.z);
+    loot(`loot:w:${i}`, k < 0.4 ? 'food' : k < 0.74 ? 'water' : k < 0.87 ? 'ammo' : 'parts', s.x, 0.05 + 0.27, s.z);
   });
 
   return {

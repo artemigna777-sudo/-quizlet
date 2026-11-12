@@ -54,6 +54,15 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 #needs i b.w{background:#4fb0e8}
 #hit{position:fixed;inset:0;pointer-events:none;opacity:0;background:radial-gradient(ellipse at 50% 50%,rgba(140,0,0,0) 40%,rgba(150,10,10,.85) 100%)}
 #binoMask{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .15s;background:radial-gradient(circle at 34% 50%,rgba(0,0,0,0) 0 27vh,#000 28vh),radial-gradient(circle at 66% 50%,rgba(0,0,0,0) 0 27vh,#000 28vh);background-blend-mode:darken;mix-blend-mode:multiply}
+#cine{position:fixed;inset:0;z-index:5;display:none;pointer-events:none}
+#cine.on{display:block}
+#cine i{position:absolute;left:0;right:0;height:11vh;background:#000}
+#cine i:first-child{top:0}
+#cine i:nth-child(2){bottom:0}
+#cine h2{position:absolute;left:0;right:0;top:16vh;margin:0;text-align:center;font-family:Russo,sans-serif;font-weight:400;font-size:clamp(22px,7vh,44px);letter-spacing:4px;text-shadow:0 3px 0 #000,0 0 24px #000}
+#cine p{position:absolute;left:8vw;right:8vw;bottom:13vh;margin:0;text-align:center;font-size:clamp(16px,4.6vh,24px);font-weight:700;line-height:1.3;text-shadow:0 2px 0 #000,0 0 12px #000}
+#skip{position:absolute;right:calc(env(safe-area-inset-right) + 14px);bottom:2.2vh;pointer-events:auto;min-height:40px;padding:6px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.5);color:#fff;font-size:14px}
+.cine #hud,.cine .btn,.cine #prompt,.cine #toast,.cine #stick{display:none!important}
 #rotate{position:fixed;inset:0;z-index:9;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#06070a;font-family:Russo,sans-serif;font-size:20px;text-align:center;padding:24px}
 #rotate b{font-size:64px;color:#ff7a2e;font-weight:400}
 #stick{position:fixed;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:2px solid rgba(255,255,255,.3);background:rgba(255,255,255,.06);display:none;pointer-events:none}
@@ -93,7 +102,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 <div id="flash"></div>
 <div id="hud">
   <div><div id="mem">ВОСПОМИНАНИЯ <b id="memN">0</b>/<span id="memAll">7</span><div id="hold" style="display:none">В РУКАХ: <b id="holdName"></b></div></div>
-    <div id="bag"><span id="clock"></span><span class="pc">1 🥫 <b id="nFood">0</b></span><span class="pc">2 💧 <b id="nWater">0</b></span><span id="weapon"></span></div></div>
+    <div id="bag"><span id="clock"></span><span class="pc">1 🥫 <b id="nFood">0</b></span><span class="pc">2 💧 <b id="nWater">0</b></span><span>🔩 <b id="nParts">0</b></span><span id="weapon"></span></div></div>
   <div id="right"><div id="needs"><span>🍞</span><i><b id="barFood"></b></i><span>💧</span><i><b id="barWater" class="w"></b></i></div>
     <div id="erase"><span>СТИРАНИЕ</span><i><b id="eraseBar"></b></i></div></div>
 </div>
@@ -110,6 +119,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 <button class="btn" id="bDrink" aria-label="Попить">💧<sub id="bDrinkN">0</sub></button>
 <button class="btn" id="bBino" aria-label="Бинокль">🔭</button>
 <button class="btn" id="bAct">ВЗЯТЬ</button>
+<div id="cine"><i></i><i></i><h2 id="cineTitle"></h2><p id="cineSub"></p><button id="skip">Пропустить ›</button></div>
 <div id="rotate"><b>↻</b>Поверни телефон горизонтально</div>
 
 <div class="screen on" id="menu">

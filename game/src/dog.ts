@@ -26,42 +26,52 @@ export class Dog {
   private stuckT = 0;
 
   constructor() {
-    const fur = lambert({ color: 0x6b4a2e });
-    const dark = lambert({ color: 0x3a2618 });
-    const box = (w: number, h: number, d: number, m = fur) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-    const body = box(0.36, 0.36, 0.95);
-    body.position.y = 0.58;
-    this.mesh.add(body);
-    this.head.position.set(0, 0.78, 0.52);
-    const skull = box(0.32, 0.3, 0.32);
-    const snout = box(0.18, 0.14, 0.22, dark);
-    snout.position.set(0, -0.05, 0.25);
-    const earL = box(0.09, 0.16, 0.06, dark), earR = box(0.09, 0.16, 0.06, dark);
-    earL.position.set(-0.11, 0.2, -0.05);
-    earR.position.set(0.11, 0.2, -0.05);
-    const scar = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.2, 0.02), new THREE.MeshBasicMaterial({ color: 0xf0e0c8 }));
-    scar.position.set(0.1, 0.03, 0.165);
-    scar.rotation.z = 0.5;
-    const eye = new THREE.MeshBasicMaterial({ color: 0x111111 });
-    const e1 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.02), eye), e2 = e1.clone();
-    e1.position.set(-0.08, 0.05, 0.165);
-    e2.position.set(0.08, 0.05, 0.165);
-    this.head.add(skull, snout, earL, earR, scar, e1, e2);
+    const fur = lambert({ color: 0x7a5232 }), belly = lambert({ color: 0xa8845a }), dark = lambert({ color: 0x3a2618 });
+    const add = (to: THREE.Object3D, geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, rx = 0, rz = 0, sc?: [number, number, number]) => {
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.position.set(x, y, z); mesh.rotation.set(rx, 0, rz);
+      if (sc) mesh.scale.set(...sc);
+      mesh.castShadow = true;
+      to.add(mesh);
+      return mesh;
+    };
+    const Q = Math.PI / 2;
+    // Туловище: грудь шире, круп уже, светлое брюхо.
+    add(this.mesh, new THREE.CapsuleGeometry(0.19, 0.5, 4, 10), fur, 0, 0.6, 0, Q);
+    add(this.mesh, new THREE.SphereGeometry(0.23, 10, 8), fur, 0, 0.62, 0.27, 0, 0, [1, 1.05, 1.1]);
+    add(this.mesh, new THREE.SphereGeometry(0.2, 10, 8), fur, 0, 0.6, -0.3);
+    add(this.mesh, new THREE.CapsuleGeometry(0.13, 0.45, 3, 8), belly, 0, 0.5, 0.02, Q);
+    add(this.mesh, new THREE.CylinderGeometry(0.11, 0.15, 0.3, 9), fur, 0, 0.76, 0.42, 0.75);
+    // Ошейник с жетоном.
+    add(this.mesh, new THREE.TorusGeometry(0.125, 0.022, 6, 12), lambert({ color: 0xa8281e }), 0, 0.76, 0.43, 0.75 + Q);
+    add(this.mesh, new THREE.CylinderGeometry(0.03, 0.03, 0.01, 8), new THREE.MeshBasicMaterial({ color: 0xe0c060 }), 0, 0.66, 0.53, Q);
+    // Голова.
+    this.head.position.set(0, 0.9, 0.55);
+    add(this.head, new THREE.SphereGeometry(0.155, 10, 8), fur, 0, 0, 0, 0, 0, [1, 0.95, 1.12]);
+    add(this.head, new THREE.CylinderGeometry(0.06, 0.095, 0.22, 9), belly, 0, -0.05, 0.2, Q);
+    add(this.head, new THREE.SphereGeometry(0.038, 8, 6), dark, 0, -0.03, 0.32);
+    add(this.head, new THREE.BoxGeometry(0.1, 0.02, 0.14), dark, 0, -0.105, 0.2);
+    for (const s of [-1, 1]) {
+      add(this.head, new THREE.ConeGeometry(0.06, 0.15, 6), dark, s * 0.1, 0.15, -0.03, -0.15, -s * 0.35);
+      add(this.head, new THREE.SphereGeometry(0.024, 6, 5), new THREE.MeshBasicMaterial({ color: 0x0c0806 }), s * 0.07, 0.035, 0.135);
+    }
+    add(this.head, new THREE.BoxGeometry(0.02, 0.17, 0.015), new THREE.MeshBasicMaterial({ color: 0xf0e0c8 }), 0.085, 0.03, 0.14, 0, 0.45);
     this.mesh.add(this.head);
-    for (const [x, z] of [[-0.12, 0.36], [0.12, 0.36], [-0.12, -0.36], [0.12, -0.36]]) {
+    // Лапы: бедро, голень, стопа.
+    for (const [x, z] of [[-0.12, 0.3], [0.12, 0.3], [-0.12, -0.32], [0.12, -0.32]]) {
       const g = new THREE.Group();
-      g.position.set(x, 0.44, z);
-      const leg = box(0.1, 0.44, 0.1, dark);
-      leg.position.y = -0.22;
-      g.add(leg);
+      g.position.set(x, 0.5, z);
+      add(g, new THREE.CylinderGeometry(0.06, 0.048, 0.26, 8), fur, 0, -0.12, 0);
+      add(g, new THREE.CylinderGeometry(0.042, 0.036, 0.22, 8), fur, 0, -0.34, 0.01);
+      add(g, new THREE.SphereGeometry(0.055, 8, 6), dark, 0, -0.455, 0.03, 0, 0, [1, 0.6, 1.3]);
       this.legs.push(g);
       this.mesh.add(g);
     }
-    this.tail.position.set(0, 0.72, -0.47);
-    const t = box(0.07, 0.07, 0.34, dark);
-    t.position.set(0, 0.08, -0.14);
-    t.rotation.x = 0.6;
-    this.tail.add(t);
+    // Хвост из трёх звеньев.
+    this.tail.position.set(0, 0.68, -0.48);
+    add(this.tail, new THREE.CylinderGeometry(0.03, 0.045, 0.18, 7), fur, 0, 0.05, -0.07, -0.9);
+    add(this.tail, new THREE.CylinderGeometry(0.022, 0.03, 0.16, 7), fur, 0, 0.16, -0.17, -0.6);
+    add(this.tail, new THREE.CylinderGeometry(0.012, 0.022, 0.12, 7), belly, 0, 0.27, -0.22, -0.3);
     this.mesh.add(this.tail);
   }
 

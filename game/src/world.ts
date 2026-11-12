@@ -20,6 +20,8 @@ export interface World {
   /** Окно ближайшего дома зажигается, когда найдено воспоминание. */
   lightWindow(at: Vec2): void;
   setTime(tod: number): void;
+  /** Первая глава: улицы за двором и магазином закрыты стеной помех. */
+  setBounds(on: boolean): void;
   /** Тени от солнца и луны (режим «высокое качество»). */
   setShadows(on: boolean): void;
   update(t: number, cam: THREE.Vector3): void;
@@ -27,6 +29,9 @@ export interface World {
 /** Кварталы, которые строят другие модули: двор и магазин. */
 export const YARD = { x: 0, z: 0 };
 export const SHOP = { x: CFG.pitch, z: 0 };
+/** Где идёт первая глава: двор, магазин и улицы вокруг. */
+export const AREA: Box = { minX: -23, maxX: 59, minZ: -23, maxZ: 23 };
+export const inArea = (p: Vec2, pad = 0) => p.x > AREA.minX + pad && p.x < AREA.maxX - pad && p.z > AREA.minZ + pad && p.z < AREA.maxZ - pad;
 
 const PASTEL = ['#d9c58a', '#9fc0d6', '#d8a9a0', '#a9cfae', '#cfc7b8', '#b9a9d0', '#e0b98a'];
 const WOOD = ['#8a5a36', '#4f7a56', '#4a6f96', '#b89a4a', '#8a3f38', '#6a6a72'];
@@ -298,6 +303,7 @@ export function buildWorld(): World {
       lootSites.push({ x: cx + 1.5, z: cz + (r() < 0.5 ? -3 : 3) });
       if (r() < 0.5) nooks.push({ x: cx - 1, z: cz });
     } else if (kind === 'shop') {
+      nooks.push({ x: cx - 8, z: cz - 9.5 });
       for (const lz of [-9, -5.5, 6, 9.5]) if (r() < 0.8) car(cx + 7 + r() * 2, cz + lz, true);
       tree(cx - 10, cz - 10); tree(cx - 10, cz + 10);
     }
@@ -377,6 +383,24 @@ export function buildWorld(): World {
     scene.add(wall);
   }
 
+  // Стена помех вокруг первой главы.
+  const fenceTex = wallTex.clone();
+  fenceTex.repeat.set(14, 2.4);
+  const curtainMat = new THREE.MeshBasicMaterial({ map: fenceTex, transparent: true, opacity: 0.78, side: THREE.DoubleSide, depthWrite: false });
+  const fence = new THREE.Group();
+  const fenceBoxes: Box[] = [];
+  const A = AREA, fw = A.maxX - A.minX, fd = A.maxZ - A.minZ, fcx = (A.minX + A.maxX) / 2, fcz = (A.minZ + A.maxZ) / 2;
+  for (const [x, z, len, ry] of [[fcx, A.minZ, fw, 0], [fcx, A.maxZ, fw, 0], [A.minX, fcz, fd, Math.PI / 2], [A.maxX, fcz, fd, Math.PI / 2]] as const) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(len, 9), curtainMat);
+    m.position.set(x, 4.5, z); m.rotation.y = ry;
+    fence.add(m);
+    fenceBoxes.push(ry ? { minX: x - 0.3, maxX: x + 0.3, minZ: z - len / 2, maxZ: z + len / 2 } : { minX: x - len / 2, maxX: x + len / 2, minZ: z - 0.3, maxZ: z + 0.3 });
+  }
+  const setBounds = (on: boolean) => {
+    if (on && !fence.parent) { scene.add(fence); boxes.push(...fenceBoxes); }
+    if (!on && fence.parent) { scene.remove(fence); for (const b of fenceBoxes) { const i = boxes.indexOf(b); if (i >= 0) boxes.splice(i, 1); } }
+  };
+
   const windowMat = new THREE.MeshBasicMaterial({ color: 0xffc86a });
   const lightWindow = (at: Vec2) => {
     let best = houses[0], bd = Infinity;
@@ -450,7 +474,8 @@ export function buildWorld(): World {
     }
     ashGeo.attributes.position.needsUpdate = true;
     wallTex.offset.set(Math.floor(t * 12) * 0.13, Math.floor(t * 12) * 0.31);
+    fenceTex.offset.set(Math.floor(t * 12) * 0.21, Math.floor(t * 12) * 0.17);
   };
 
-  return { scene, boxes, lamps, half, lootSites, nooks, lightWindow, setTime, setShadows: (on) => { sun.castShadow = on; }, update };
+  return { scene, boxes, lamps, half, lootSites, nooks, lightWindow, setTime, setBounds, setShadows: (on) => { sun.castShadow = on; }, update };
 }

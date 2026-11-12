@@ -1,6 +1,7 @@
 /** Главный цикл: меню → игра → записка / воспоминание / стирание. Прогресс хранится на устройстве. */
 import * as THREE from 'three';
 import { Sound } from './audio';
+import { Cine, type Shot } from './cine';
 import { Arms, Enemies, WEAPON } from './combat';
 import { CFG, type Vec2 } from './config';
 import { Dog } from './dog';
@@ -13,12 +14,12 @@ import { Player } from './player';
 import { Shooter } from './shooter';
 import { HOMES, canReveal, canTake, homeOf, itemOf, memId, revealed, yardGoal, type YardState } from './story';
 import { SURV, advanceClock, clockText, daylight, drink, eat, grayOf, hurt, isNight, stepVitals, type Vitals } from './survival';
-import { buildWorld } from './world';
+import { AREA, buildWorld, inArea } from './world';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-type Mode = 'menu' | 'play' | 'card' | 'erased' | 'pause' | 'peek';
-interface Save extends YardState { loot: string[]; food: number; water: number; ammo: number; axe: boolean; gun: boolean; vit: Vitals; tod: number }
-const FRESH: Save = { found: [], taken: [], hold: null, loot: [], food: 0, water: 0, ammo: 0, axe: false, gun: false, vit: { hp: 100, food: 80, water: 75 }, tod: SURV.startTime };
+type Mode = 'menu' | 'play' | 'card' | 'erased' | 'pause' | 'peek' | 'cine';
+interface Save extends YardState { loot: string[]; food: number; water: number; ammo: number; axe: boolean; gun: boolean; vit: Vitals; tod: number; parts: number; axeLvl: number; gunLvl: number; intro: boolean; nightSeen: boolean; free: boolean }
+const FRESH: Save = { found: [], taken: [], hold: null, loot: [], food: 0, water: 0, ammo: 0, axe: false, gun: false, vit: { hp: 100, food: 80, water: 75 }, tod: SURV.startTime, parts: 0, axeLvl: 0, gunLvl: 0, intro: false, nightSeen: false, free: false };
 
 function loadSave(): Save {
   const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -30,6 +31,7 @@ function loadSave(): Save {
       found: strs(v.found), taken, hold: typeof v.hold === 'string' && taken.includes(v.hold) ? v.hold : null, loot: strs(v.loot),
       food: num(v.food, 0, 99), water: num(v.water, 0, 99), ammo: num(v.ammo, 0), axe: v.axe === true, gun: v.gun === true,
       vit: { hp: Math.max(20, num(v.vit?.hp, 100, 100)), food: num(v.vit?.food, 80, 100), water: num(v.vit?.water, 75, 100) }, tod: num(v.tod, SURV.startTime, 0.9999),
+      parts: num(v.parts, 0, 99), axeLvl: num(v.axeLvl, 0, 1), gunLvl: num(v.gunLvl, 0, 1), intro: v.intro === true, nightSeen: v.nightSeen === true, free: v.free === true,
     };
   } catch { return structuredClone(FRESH); }
 }
@@ -50,13 +52,18 @@ async function boot() {
   const input = new Input(canvas, $('stick'));
   const sound = new Sound();
   const arms = new Arms(player.camera);
+  const cine = new Cine({ root: $('cine'), sub: $('cineSub'), title: $('cineTitle') });
   const enemies = new Enemies(world.scene);
   world.scene.add(player.camera, dog.mesh, shooter.mesh);
   document.body.classList.toggle('touch', input.touch);
   player.camera.far = 130;
   player.camera.near = 0.1;
 
-  const START: Vec2 = { x: 18, z: 30 };
+  const START: Vec2 = { x: 18, z: 20 };
+  player.pos = { ...START };
+  player.yaw = 0.35;
+  dog.place({ x: START.x + 0.4, z: START.z - 2.2 });
+  const noCine = (window as unknown as { __noCine?: boolean }).__noCine === true;
   let st = loadSave();
   let found = [...st.found];
   const startBtn = $<HTMLButtonElement>('start');
@@ -72,8 +79,16 @@ async function boot() {
   arms.cur = st.gun && st.ammo > 0 ? 'gun' : st.axe ? 'axe' : st.gun ? 'gun' : 'none';
   let saveT = 0;
   const commit = (next: Partial<Save>) => { st = { ...st, ...next, ammo: arms.ammo, axe: arms.hasAxe, gun: arms.hasGun }; found = [...st.found]; save(st); hud(); };
-  let memories: Memory[] = buildMemories(world.scene, found);
-  memories.filter((m) => m.found).forEach((m) => world.lightWindow(m.at));
+  const allMemories: Memory[] = buildMemories(world.scene, found);
+  allMemories.filter((m) => m.found).forEach((m) => world.lightWindow(m.at));
+  let memories: Memory[] = [];
+  /** Первая глава идёт во дворе и вокруг него; после неё город открыт весь. */
+  const applyChapter = () => {
+    world.setBounds(!st.free);
+    memories = allMemories.filter((m) => st.free || inArea(m.at));
+    allMemories.forEach((m) => { m.mesh.visible = memories.includes(m); });
+  };
+  applyChapter();
   let mode: Mode = 'menu';
   let pressure = 0;
   let checkpoint: Vec2 = START;
@@ -90,6 +105,7 @@ async function boot() {
   let hungerTold = 0;
   let growlT = 0;
   let drops = 0;
+  let edgeT = -99;
 
   // Качество: «высокое» — чётче и с тенями, «обычное» — для слабых телефонов. Игра сама понижает его, если тормозит.
   const QKEY = 'erased-town:quality';
@@ -111,6 +127,8 @@ async function boot() {
     const w = innerWidth, h = innerHeight;
     const k = Math.max(1, Math.min(w, h) / (high ? 480 : CFG.pixels));
     renderer.setSize(Math.round(w / k), Math.round(h / k), false);
+    cine.cam.aspect = w / h;
+    cine.cam.updateProjectionMatrix();
     player.camera.aspect = w / h;
     player.camera.updateProjectionMatrix();
   };
@@ -130,7 +148,8 @@ async function boot() {
     $('nWater').textContent = String(st.water);
     $('bEatN').textContent = String(st.food);
     $('bDrinkN').textContent = String(st.water);
-    $('weapon').textContent = arms.cur === 'gun' ? `автомат · ${arms.ammo}` : arms.cur === 'axe' ? 'топор' : 'без оружия';
+    $('weapon').textContent = arms.cur === 'gun' ? `автомат${st.gunLvl ? '+' : ''} · ${arms.ammo}` : arms.cur === 'axe' ? `топор${st.axeLvl ? '+' : ''}` : 'без оружия';
+    $('nParts').textContent = String(st.parts);
     document.body.classList.toggle('armed', arms.cur !== 'none');
     document.body.classList.toggle('two', arms.hasAxe && arms.hasGun);
     document.body.classList.toggle('bino', st.hold === 'bino');
@@ -144,8 +163,9 @@ async function boot() {
   };
   const setMode = (m: Mode) => {
     mode = m;
+    document.body.classList.toggle('cine', m === 'cine');
     show('menu', m === 'menu'); show('card', m === 'card'); show('erased', m === 'erased'); show('pause', m === 'pause');
-    if (m === 'play') input.lock(); else if (m !== 'peek') document.exitPointerLock?.();
+    if (m === 'play') input.lock(); else if (m !== 'peek' && m !== 'cine') document.exitPointerLock?.();
   };
   $('help').textContent = input.touch
     ? 'Слева — идти, справа — смотреть. Держи телефон горизонтально.'
@@ -158,6 +178,7 @@ async function boot() {
   const startGame = () => {
     sound.start();
     if (input.touch) { void document.documentElement.requestFullscreen?.().then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape')).catch(() => {}); }
+    if (!st.intro && !noCine) { st.intro = true; input.lock(); playIntro(); return; }
     setMode('play');
     if (playT === 0) toast('Ты не помнишь, кто ты.', 3.5);
   };
@@ -166,7 +187,7 @@ async function boot() {
   $('resume').onclick = () => setMode('play');
   $('cardOk').onclick = () => {
     setMode('play');
-    if (found.length === memories.length + HOMES.length) toast('Это всё, что есть в этой версии. Продолжение — в следующих сериях.', 8);
+    if (!st.free && found.length >= memories.length + HOMES.length) playEnding();
   };
   $('again').onclick = () => {
     player.pos = { ...checkpoint };
@@ -192,6 +213,51 @@ async function boot() {
   document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && mode === 'play' && !input.touch) setMode('pause'); });
   document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'play') setMode('pause'); });
 
+  // ───────── Сценки ─────────
+  const hero = new THREE.Group();
+  {
+    const coat = new THREE.MeshLambertMaterial({ color: 0x3a4658 }), skin = new THREE.MeshLambertMaterial({ color: 0xc99a78 }), jeans = new THREE.MeshLambertMaterial({ color: 0x2a3140 });
+    const part = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, rz = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.z = rz; o.castShadow = true; hero.add(o); };
+    part(new THREE.CapsuleGeometry(0.2, 0.5, 4, 8), coat, 0, 0.22, 0, Math.PI / 2);
+    part(new THREE.SphereGeometry(0.14, 8, 7), skin, -0.62, 0.2, 0.02);
+    part(new THREE.CapsuleGeometry(0.085, 0.75, 3, 7), jeans, 0.82, 0.14, 0.12, Math.PI / 2 - 0.08);
+    part(new THREE.CapsuleGeometry(0.085, 0.75, 3, 7), jeans, 0.8, 0.14, -0.13, Math.PI / 2 + 0.1);
+    part(new THREE.CapsuleGeometry(0.07, 0.5, 3, 7), coat, -0.2, 0.12, 0.42, Math.PI / 2 + 0.5);
+    part(new THREE.SphereGeometry(0.075, 7, 6), skin, -0.5, 0.1, 0.58);
+  }
+  hero.visible = false;
+  world.scene.add(hero);
+  const run = (shots: Shot[], after: () => void) => { setMode('cine'); cine.play(shots, () => { hero.visible = false; setMode('play'); after(); }); };
+  const playIntro = () => {
+    const s = START;
+    hero.position.set(s.x, 0.05, s.z); hero.rotation.y = 0.5; hero.visible = true;
+    dog.place({ x: s.x - 0.6, z: s.z - 1.6 });
+    run([
+      { dur: 5.5, from: [s.x, 40, s.z + 2], to: [s.x - 1, 13, s.z + 3], look: [s.x - 6, 0, s.z - 16], lookTo: [s.x - 4, 0, s.z - 9], title: 'ГЛАВА 1 · ДВОР', text: 'Город, которого нет на картах.' },
+      { dur: 4.5, from: [s.x + 5, 2.6, s.z + 5], to: [s.x + 2.6, 1.1, s.z + 2.4], look: [s.x, 0.3, s.z], text: 'Асфальт. Холодно. Имени нет.' },
+      { dur: 4, from: [s.x - 1.8, 0.7, s.z + 1.6], to: [s.x - 1.2, 0.9, s.z + 0.9], look: [s.x + 0.3, 0.5, s.z - 1.2], text: 'Пёс со шрамом. На ошейнике — «Тузик». Он нашёл тебя первым.' },
+      { dur: 3.5, from: [s.x + 0.2, 0.5, s.z + 0.3], to: [s.x, 1.6, s.z], look: [s.x - 2, 1.2, s.z - 6], lookTo: [s.x - 4, 1.5, s.z - 8], text: 'На ладони что-то написано.' },
+    ], () => { commit({}); toast(input.touch ? 'Зажми ✋ — посмотри на ладонь.' : 'Зажми Q — посмотри на ладонь.', 5); playT = Math.max(playT, 5); });
+  };
+  const playNight = () => {
+    const l = world.lamps.filter((v) => v.mode === 'on' && inArea({ x: v.lx, z: v.lz }, 3)).sort((a, b) => Math.abs(Math.hypot(a.lx - player.pos.x, a.lz - player.pos.z) - 20) - Math.abs(Math.hypot(b.lx - player.pos.x, b.lz - player.pos.z) - 20))[0];
+    if (!l) { commit({}); return; }
+    const e = player.pos, dx = l.lx - e.x, dz = l.lz - e.z, d = Math.hypot(dx, dz) || 1, ux = dx / d, uz = dz / d;
+    run([
+      { dur: 3.5, from: [e.x, 1.7, e.z], to: [e.x + ux * 2, 1.9, e.z + uz * 2], look: [l.lx, 3, l.lz], text: 'Темнеет. Зажглись фонари.', on: () => { shooter.mesh.position.set(l.lx, 0, l.lz); shooter.mesh.rotation.y = Math.atan2(-ux, -uz); shooter.mesh.visible = true; } },
+      { dur: 4.5, from: [l.lx - ux * 9 + uz * 2, 1.5, l.lz - uz * 9 - ux * 2], to: [l.lx - ux * 3.2 + uz, 1.6, l.lz - uz * 3.2 - ux], look: [l.lx, 1.7, l.lz], text: 'Под фонарём кто-то стоит. Тузик не лает. Он молчит.' },
+      { dur: 3, from: [l.lx - ux * 3.2 + uz, 1.6, l.lz - uz * 3.2 - ux], look: [l.lx, 1.7, l.lz], text: 'Фонарь мигнул. Никого.', on: () => { shooter.mesh.visible = false; sound.sting(); } },
+    ], () => { nightTold = true; commit({}); toast('Ночь. Город лепит копии из тех, кого стёр.\nОни идут на звук шагов. В дома не заходят.\nВ доме, который вспомнили, ночь можно переждать.', 9); });
+  };
+  const playEnding = () => {
+    run([
+      { dur: 4.5, from: [0, 2, 16], to: [0, 14, 22], look: [0, 3, 0], text: 'Двор вспомнил своих. В четырёх окнах горит свет.' },
+      { dur: 4, from: [48, 2.2, 15], to: [54, 1.7, 17], look: [AREA.maxX, 2.5, 18], text: 'Стена помех дрожит.' },
+      { dur: 4.5, from: [54, 1.7, 17], to: [56.5, 1.7, 18], look: [70, 2, 18], title: 'КОНЕЦ ПЕРВОЙ ГЛАВЫ', text: 'И город отступает.', on: () => { st.free = true; applyChapter(); sound.pickup(); } },
+    ], () => { commit({ free: true }); hud(); toast('Город открыт. Вторая глава — в следующих сериях, а пока можно идти куда угодно.', 9); });
+  };
+  $('skip').onclick = () => cine.skip();
+
   const die = (title: string, text: string) => { $('erasedTitle').textContent = title; $('erasedText').textContent = text; sound.erased(); setMode('erased'); };
   const pick = (m: Memory) => {
     m.found = true;
@@ -212,6 +278,7 @@ async function boot() {
       if (s.kind === 'item' && st.taken.includes(s.id)) continue;
       if (s.kind === 'loot' && st.loot.includes(s.id)) continue;
       if (s.kind === 'gate' && revealed(st, s.home!)) continue;
+      if (s.kind === 'bed' && !(revealed(st, s.home!) && isNight(st.tod))) continue;
       const dx = s.at.x - player.pos.x, dz = s.at.z - player.pos.z;
       const d = Math.hypot(dx, dz);
       if (d < bd && (d < 0.6 || (dx * f.x + dz * f.z) / d > 0.35)) { bd = d; best = s; }
@@ -222,6 +289,8 @@ async function boot() {
   const spotLabel = (s: Spot): string => {
     if (s.kind === 'note') return `прочитать: ${s.title.toLowerCase()}`;
     if (s.kind === 'loot') return `взять: ${s.title}`;
+    if (s.kind === 'bed') return 'переждать ночь';
+    if (s.kind === 'bench') return 'верстак: улучшить оружие';
     if (s.kind === 'item') return st.hold ? 'руки заняты' : `взять: ${s.title}`;
     return canReveal(st, s.home!) ? VERB[st.hold!] ?? 'вернуть вещь' : 'стёртая комната';
   };
@@ -236,6 +305,27 @@ async function boot() {
   };
   const useSpot = (s: Spot) => {
     if (s.kind === 'note') { sound.click(); card(s.title, s.text, 'note'); return; }
+    if (s.kind === 'bed') {
+      // В доме, который вспомнили, ночью безопасно: можно дождаться утра.
+      enemies.clear();
+      st.tod = 0.27;
+      st.vit = { ...st.vit, food: Math.max(0, st.vit.food - 12), water: Math.max(0, st.vit.water - 15), hp: Math.min(100, st.vit.hp + 25) };
+      checkpoint = { ...player.pos };
+      flashT = 1;
+      commit({});
+      toast('Утро. Тузик всю ночь лежал у двери.', 5);
+      return;
+    }
+    if (s.kind === 'bench') {
+      const need = arms.hasAxe && !st.axeLvl ? 3 : arms.hasGun && !st.gunLvl ? 4 : 0;
+      if (!need) { toast(arms.hasAxe || arms.hasGun ? 'Здесь больше нечего улучшать.' : 'Верстак Гены. Улучшать пока нечего — нужно оружие.', 4); return; }
+      if (st.parts < need) { toast(`Не хватает деталей: нужно ${need}, есть ${st.parts}. Ищи в ящиках, гаражах и мастерских.`, 5); return; }
+      const axe = arms.hasAxe && !st.axeLvl;
+      commit(axe ? { parts: st.parts - need, axeLvl: 1 } : { parts: st.parts - need, gunLvl: 1 });
+      sound.pickup();
+      toast(axe ? 'Топор заточен и насажен заново: бьёт в полтора раза сильнее.' : 'Автомат вычищен и смазан: бьёт сильнее.', 5);
+      return;
+    }
     if (s.kind === 'loot') {
       if (s.mesh) s.mesh.visible = false;
       const k = s.loot!;
@@ -243,11 +333,12 @@ async function boot() {
       if (k === 'food') commit({ loot, food: st.food + 1 });
       else if (k === 'water') commit({ loot, water: st.water + 1 });
       else if (k === 'ammo') { arms.ammo += 15; commit({ loot }); }
+      else if (k === 'parts') commit({ loot, parts: st.parts + 1 });
       else { arms.give(k); if (k === 'gun') arms.ammo += 30; commit({ loot }); }
       sound.click();
       toast(k === 'axe' ? `Топор. ${input.touch ? 'Кнопка ⚔' : 'Левая кнопка мыши или пробел'} — ударить.`
         : k === 'gun' ? 'Автомат и 30 патронов. Патроны береги: копий по ночам много.'
-          : k === 'ammo' ? 'Патроны: +15.' : `В сумке: ${s.title}. ${input.touch ? 'Кнопки 🥫 и 💧' : 'Клавиши 1 и 2'} — поесть и попить.`, 5);
+          : k === 'ammo' ? 'Патроны: +15.' : k === 'parts' ? `Детали: ${st.parts}. Пригодятся на верстаке в мастерской.` : `В сумке: ${s.title}. ${input.touch ? 'Кнопки 🥫 и 💧' : 'Клавиши 1 и 2'} — поесть и попить.`, 5);
       return;
     }
     if (s.kind === 'item') {
@@ -322,12 +413,12 @@ async function boot() {
       // Оружие.
       if (input.hit('KeyX')) { arms.swap(); sound.click(); hud(); }
       const ev = arms.update(dt, input.fire);
-      if (ev === 'swing') { sound.swing(); if (enemies.hit(player.pos, fwd, WEAPON.axeRange, 0.5, WEAPON.axeDmg, world.boxes)) sound.thud(); }
-      else if (ev === 'shot') { sound.shot(); if (enemies.hit(player.pos, fwd, WEAPON.gunRange, 0.994, WEAPON.gunDmg, world.boxes)) sound.thud(); hud(); }
+      if (ev === 'swing') { sound.swing(); if (enemies.hit(player.pos, fwd, WEAPON.axeRange, 0.5, WEAPON.axeDmg * (st.axeLvl ? 1.5 : 1), world.boxes)) sound.thud(); }
+      else if (ev === 'shot') { sound.shot(); if (enemies.hit(player.pos, fwd, WEAPON.gunRange, 0.994, WEAPON.gunDmg * (st.gunLvl ? 1.5 : 1), world.boxes)) sound.thud(); hud(); }
       else if (ev === 'empty') { sound.dry(); if (arms.hasAxe) { arms.cur = 'axe'; hud(); } toast('Патроны кончились.', 2.5); }
 
       // Ночные копии.
-      const tick = enemies.update(dt, { t, player: player.pos, fwd, running: input.run && player.moving, flash: player.flashlightOn, night, indoors, dog: dog.pos, boxes: world.boxes, nooks: world.nooks });
+      const tick = enemies.update(dt, { t, player: player.pos, fwd, running: input.run && player.moving, flash: player.flashlightOn, night, indoors, dog: dog.pos, boxes: world.boxes, nooks: world.nooks, area: st.free ? null : AREA });
       if (tick.damage) { st.vit = hurt(st.vit, tick.damage); hitT = 1; sound.pain(); }
       if (tick.screamed) sound.scream();
       growlT -= dt;
@@ -341,12 +432,14 @@ async function boot() {
           spots.push(s);
         }
       }
-      if (night && !nightTold) { nightTold = true; toast('Ночь. Город лепит копии из тех, кого стёр.\nОни идут на звук шагов. В дома не заходят.', 8); }
+      if (night && !st.nightSeen && !noCine) { st.nightSeen = true; playNight(); }
+      else if (night && !nightTold) { nightTold = true; toast('Ночь. Город лепит копии из тех, кого стёр.\nОни идут на звук шагов. В дома не заходят.', 8); }
       if (!night) nightTold = false;
 
       // Стирание: ночью сильнее.
       const dDog = Math.hypot(dog.pos.x - player.pos.x, dog.pos.z - player.pos.z);
       pressure = stepErasure(pressure, dt * (night && dDog > CFG.safe ? 1.5 : 1), dDog);
+      if (!st.free && !inArea(player.pos, 1.2) && inArea(player.pos, -1) && t - edgeT > 15) { edgeT = t; toast('Дальше стёрто. Пока двор не вспомнит своих, город не пустит.', 5); }
       if (pressure > 0.2 && !warned) { warned = true; toast('Не отходи от Тузика: город стирает тех, кого никто не помнит.', 6); }
       if (pressure >= 1) die('ТЕБЯ СТЁРЛИ', 'Рядом не было никого, кто тебя помнит. Держись ближе к Тузику.');
       else if (st.vit.hp <= 0) die('ТЕБЯ НЕ СТАЛО', tick.damage ? 'Копии не устают. Ночью лучше переждать в доме — или найти, чем отбиваться.' : 'Без еды и воды долго не протянуть. Ищи припасы в домах и в магазине.');
@@ -402,9 +495,10 @@ async function boot() {
 
     animateMemories(memories, t);
     world.setTime(st.tod);
-    world.update(t, player.camera.position);
+    world.update(t, cine.active ? cine.cam.position : player.camera.position);
     homes.update(t);
-    renderer.render(world.scene, player.camera);
+    cine.update(dt);
+    renderer.render(world.scene, cine.active ? cine.cam : player.camera);
     requestAnimationFrame(frame);
   };
   player.update(0, input, { x: 0, y: 0 }, world.boxes, world.half, true);
@@ -417,7 +511,7 @@ async function boot() {
     get mode() { return mode; }, get pressure() { return pressure; }, get found() { return found; },
     get st() { return st; }, get spot() { return spot; },
     setTime(v: number) { st.tod = v; }, setVit(v: Partial<Vitals>) { st.vit = { ...st.vit, ...v }; },
-    start: startGame,
+    start: startGame, cine, playIntro, playNight, playEnding,
     setQuality(h: boolean) { high = h; applyQuality(); },
   };
 }

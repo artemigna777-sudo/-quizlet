@@ -3,6 +3,7 @@
  * дальняя комната, которую город стёр. Она возвращается, когда принесёшь к её двери вещь хозяина.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Vec2 } from './config';
 import { canvasTex, lambert } from './gfx';
 import type { Box } from './logic';
@@ -11,7 +12,7 @@ import { loadModel, type Proto } from './models';
 import { HOMES, ITEMS, type HomeId, type Room } from './story';
 
 export interface Spot {
-  id: string; kind: 'note' | 'item' | 'gate' | 'loot'; home?: HomeId; room: Room; at: Vec2;
+  id: string; kind: 'note' | 'item' | 'gate' | 'loot' | 'bed' | 'bench'; home?: HomeId; room: Room; at: Vec2;
   title: string; text: string; mesh: THREE.Object3D | null; loot?: LootKind;
 }
 export interface Homes {
@@ -70,12 +71,10 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     noise(g, w, h, 70, 0.2);
   }, [5, 5]) });
   const ceilMat = lambert({ color: 0x2a2a2e });
-  const upperTex = canvasTex(64, 64, (g, w, h) => {
-    g.fillStyle = '#dcd8d0'; g.fillRect(0, 0, w, h);
-    noise(g, w, h, 200, 0.1);
-    for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) { g.fillStyle = '#f4f0e6'; g.fillRect(5 + c * 20, 6 + r * 30, 16, 20); g.fillStyle = '#2c3f5c'; g.fillRect(7 + c * 20, 8 + r * 30, 5, 16); g.fillRect(14 + c * 20, 8 + r * 30, 5, 16); }
-  });
   const roofMat = lambert({ color: 0x6a3a30 });
+  const plinthMat = lambert({ color: 0x77736c }), trimMat = lambert({ color: 0xece6d8 }), railMat = lambert({ color: 0x3a3e46 });
+  const glassMat = lambert({ color: 0x2c3f5c });
+  const frameGeo = new THREE.BoxGeometry(1.5, 1.7, 0.1), glassGeo = new THREE.BoxGeometry(1.26, 1.46, 0.08), sillGeo = new THREE.BoxGeometry(1.7, 0.08, 0.22);
   const woodMat = lambert({ map: canvasTex(32, 32, (g, w, h) => {
     g.fillStyle = '#7a5a36'; g.fillRect(0, 0, w, h);
     g.strokeStyle = '#4a3520';
@@ -101,6 +100,8 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
   const basic = (color: number) => new THREE.MeshBasicMaterial({ color });
   let seed = 77;
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const bookCols = [0x8a3a30, 0x2f5a7a, 0x4a6a3a, 0xb89a4a, 0x5a3a6a, 0xc8c0a8, 0x3a3a44].map((c) => new THREE.Color(c));
+  const booksMat = lambert({ vertexColors: true });
   const bookMats = [0x8a3a30, 0x2f5a7a, 0x4a6a3a, 0xb89a4a, 0x5a3a6a, 0xc8c0a8, 0x3a3a44].map((c) => lambert({ color: c }));
   const cupMats = [0xe8e4d8, 0x7aa0c0, 0xc86a4a].map((c) => lambert({ color: c }));
 
@@ -127,7 +128,7 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     };
     const inMat = paperMat(site.wall);
     const outMat = lambert({ map: outTex, color: site.out });
-    const upperMat = lambert({ map: upperTex, color: site.out });
+    const upperMat = lambert({ map: outTex, color: site.out });
     /** Стена: inside — номер грани коробки, которая смотрит в комнату (0 +x, 1 −x, 4 +z, 5 −z), −1 — перегородка. */
     const wall = (x0: number, z0: number, x1: number, z1: number, inside: number, y0 = 0, y1 = H, collide = true) => {
       const mats = [0, 1, 2, 3, 4, 5].map((i) => (inside < 0 || i === inside ? inMat : outMat));
@@ -171,6 +172,44 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       shade.position.set(x, H - 0.5, z);
       g.add(rug, cord, shade);
     }
+    // Снаружи: цоколь, карнизы, объёмные окна с подоконниками, балконы, крыльцо с козырьком, водосток, труба.
+    // Всё это склеивается в несколько сеток на дом — иначе телефону пришлось бы рисовать сотни мелких деталей по отдельности.
+    const bag = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    const M4 = new THREE.Matrix4(), E = new THREE.Euler(), P = new THREE.Vector3(), S1 = new THREE.Vector3(1, 1, 1), QT = new THREE.Quaternion();
+    const piece = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, parent?: THREE.Matrix4, rx = 0) => {
+      M4.compose(P.set(x, y, z), QT.setFromEuler(E.set(rx, 0, 0)), S1);
+      if (parent) M4.premultiply(parent);
+      const c = geo.clone().applyMatrix4(M4);
+      (bag.get(m) ?? bag.set(m, []).get(m)!).push(c);
+    };
+    const ext = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number, rx = 0) => piece(new THREE.BoxGeometry(w, h, d), m, x, y, z, undefined, rx);
+    ext(10.16, 0.55, 0.1, plinthMat, 0, 0.275, -5.05); ext(0.1, 0.55, 10.16, plinthMat, -5.05, 0.275, 0); ext(0.1, 0.55, 10.16, plinthMat, 5.05, 0.275, 0);
+    ext(4.3, 0.55, 0.1, plinthMat, -2.9, 0.275, 5.05); ext(4.3, 0.55, 0.1, plinthMat, 2.9, 0.275, 5.05);
+    ext(10.3, 0.18, 10.3, trimMat, 0, H + 0.05, 0);
+    ext(10.4, 0.22, 10.4, trimMat, 0, hh - 0.05, 0);
+    const floors = Math.round((hh - H) / 3);
+    const WM = new THREE.Matrix4();
+    /** Окно на внешней стене: side 0 — фасад (+z), 1 — задняя, 2 — левая (−x), 3 — правая. */
+    const window3 = (side: number, u: number, y: number, balcony = false) => {
+      const ry = [0, Math.PI, -Q, Q][side];
+      const pos = side === 0 ? [u, y, 5.03] : side === 1 ? [u, y, -5.03] : side === 2 ? [-5.03, y, u] : [5.03, y, u];
+      WM.compose(new THREE.Vector3(pos[0], pos[1], pos[2]), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), S1);
+      const wm = WM.clone();
+      piece(frameGeo, trimMat, 0, 0, 0, wm); piece(glassGeo, glassMat, 0, 0, 0.03, wm); piece(sillGeo, trimMat, 0, -0.82, 0.08, wm);
+      if (balcony) {
+        piece(new THREE.BoxGeometry(2.2, 0.12, 1.0), plinthMat, 0, -0.95, 0.5, wm); piece(new THREE.BoxGeometry(2.2, 0.9, 0.06), railMat, 0, -0.45, 0.98, wm);
+        piece(new THREE.BoxGeometry(0.06, 0.9, 1.0), railMat, -1.08, -0.45, 0.5, wm); piece(new THREE.BoxGeometry(0.06, 0.9, 1.0), railMat, 1.08, -0.45, 0.5, wm);
+      }
+    };
+    window3(0, 3.0, 1.55); window3(0, -3.0, 1.55); window3(2, 2.4, 1.55); window3(2, -2.6, 1.55); window3(1, 2.2, 1.55); window3(1, -2.6, 1.55); window3(3, 2.4, 1.55); window3(3, -2.6, 1.55);
+    for (let f = 0; f < floors; f++) for (let sd = 0; sd < 4; sd++) for (const u of [-3, 0, 3]) window3(sd, u, H + 1.6 + f * 3, sd === 0 && u === 0 && (f + def.num) % 2 === 0);
+    ext(2.0, 0.16, 1.2, plinthMat, 0, 0.08, 5.6);
+    ext(2.2, 0.1, 1.4, roofMat, 0, 2.45, 5.65, 0.12);
+    for (const sx of [-0.95, 0.95]) ext(0.08, 2.4, 0.08, railMat, sx, 1.2, 6.2);
+    ext(0.12, 2.2, 0.14, trimMat, -0.66, 1.1, 5.02); ext(0.12, 2.2, 0.14, trimMat, 0.66, 1.1, 5.02); ext(1.44, 0.12, 0.14, trimMat, 0, 2.2, 5.02);
+    piece(new THREE.CylinderGeometry(0.07, 0.07, hh, 8), railMat, 4.85, hh / 2, 5.12);
+    ext(0.9, 1.6, 0.9, plinthMat, -2.2, hh + 0.9, -1.5);
+    bag.forEach((geos, m) => g.add(new THREE.Mesh(mergeGeometries(geos), m)));
     // Открытая дверь, номер дома, окна.
     const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.15, 2.05, 0.06), lambert({ color: site.tint }));
     leaf.position.set(-0.6 - 0.5, 1.03, 5.45); leaf.rotation.y = 0.9;
@@ -188,15 +227,23 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     const clutter = (obj: THREE.Object3D, id: ModelId) => {
       const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.z = rz; obj.add(m); };
       const shelf = (w: number, ys: number[]) => {
+        const geos: THREE.BufferGeometry[] = [];
         for (const y of ys) {
           let x = -w / 2 + rnd() * 0.1;
           while (x < w / 2 - 0.06) {
             if (rnd() < 0.18) { x += 0.06 + rnd() * 0.12; continue; }
             const t = 0.025 + rnd() * 0.03, h = 0.17 + rnd() * 0.09;
-            add(new THREE.BoxGeometry(t, h, 0.14), bookMats[Math.floor(rnd() * bookMats.length)], x + t / 2, y + h / 2, 0, rnd() < 0.1 ? 0.25 : 0);
+            const geo = new THREE.BoxGeometry(t, h, 0.14);
+            if (rnd() < 0.1) geo.rotateZ(0.25);
+            geo.translate(x + t / 2, y + h / 2, 0);
+            const c = bookCols[Math.floor(rnd() * bookCols.length)], n = geo.attributes.position.count, col = new Float32Array(n * 3);
+            for (let k = 0; k < n; k++) { col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b; }
+            geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+            geos.push(geo);
             x += t + 0.004;
           }
         }
+        if (geos.length) obj.add(new THREE.Mesh(mergeGeometries(geos), booksMat));
       };
       if (id === 'Shelf_01') shelf(0.86, [0.07, 0.48, 0.88, 1.28, 1.68]);
       else if (id === 'painted_wooden_shelves') shelf(0.4, [0.06, 0.42, 0.78]);
@@ -409,6 +456,9 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(B, 'life_jacket', 3.9, -4.66, 0, { y: 0.9 });
       put(B, 'painted_wooden_stool', 2.6, -3.4);
       put(B, 'metal_tool_chest', 3.5, -3.7, 0.2);
+      loot('parts', 'детали из ящика с инструментами', 'B', 3.5, -3.7, 0.44);
+      loot('parts', 'латунные шурупы', 'B', -4.45, -3.2, 0.95);
+      spots.push({ id: 'bench:gena', kind: 'bench', home: 'gena', room: 'B', at: W(3.75, -2.2), title: 'Верстак', text: '', mesh: null });
       on(B, 'wooden_table_02', 'bench_vice_01', 4.35, -2.0, -Q);
       put(B, 'steel_frame_shelves_01', -4.45, -3.2, Q);
       put(B, 'hanging_industrial_lamp', -1.0, -3.0, 0, { y: 1.5, solid: false });
@@ -431,6 +481,7 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(A, 'painted_wooden_bench', -2.4, -0.1, 0);
       put(A, 'hanging_picture_frame_01', -0.4, -0.38, 0, { y: 1.4 });
       put(A, 'small_wooden_table_01', 0.3, -0.1, 0);
+      loot('parts', 'детали от конструктора', 'A', 1.6, 2.8, 0.63);
       on(A, 'small_wooden_table_01', 'television_02', 0.3, -0.1, 0);
       put(A, 'painted_wooden_chair_02', -3.4, 3.4, -Q);
       put(A, 'side_table_01', 4.35, 3.5, -Q);
@@ -478,6 +529,8 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     put(A, 'planter_pot_clay', 1.5, 5.45, def.num, { solid: false });
     put(A, 'planter_box_01', 3.0, 5.35, 0, { solid: false });
     if (def.num % 2) put(A, 'planter_box_01', -3.2, 5.35, 0, { solid: false });
+    const BED: Record<HomeId, [number, number]> = { nina: [3.4, -2.7], zoya: [-3.4, -2.6], gena: [-3.4, 2.0], tema: [3.4, 1.8] };
+    spots.push({ id: `bed:${def.id}`, kind: 'bed', home: def.id, room: 'A', at: W(...BED[def.id]), title: 'Переждать ночь', text: '', mesh: null });
     // Стёртая комната: серые силуэты и помехи в дверном проёме.
     const saved = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
     B.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { saved.set(m, m.material); m.material = ghostMat; } });
@@ -509,6 +562,8 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
   yard('plastic_monobloc_chair_01', 1.2, 1.0, 2.2);
   yard('wooden_crate_02', -1.9, -2.4, 0.2, false);
   yard('planter_box_01', 2.5, -0.4, Q, false);
+  const yp = lootMesh('parts'); yp.position.set(-1.9, FLOOR + 0.4, -2.4); scene.add(yp);
+  spots.push({ id: 'loot:yard-parts', kind: 'loot', room: 'A', at: { x: -1.9, z: -2.4 }, title: 'гайки и болты', text: '', mesh: yp, loot: 'parts' });
   yard('WetFloorSign_01', -0.6, -0.9, 0.7, false);
   yard('metal_jug', -2.4, -1.4, 0, false);
   const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 0.5, 8), lambert({ color: 0x6a4a30 }));

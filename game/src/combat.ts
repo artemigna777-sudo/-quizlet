@@ -12,7 +12,7 @@ import { axeMesh, gunMesh } from './loot';
 export const WEAPON = { axeDmg: 40, axeRange: 2.4, axeCool: 0.6, gunDmg: 34, gunRange: 45, gunCool: 0.13 } as const;
 type Kind = 'echo' | 'screamer';
 interface Enemy { kind: Kind; mesh: THREE.Group; mat: THREE.MeshLambertMaterial; pos: Vec2; hp: number; aware: boolean; cool: number; stun: number; dying: number; dir: number; turnT: number; rush: number; gait: number }
-export interface Ctx { t: number; player: Vec2; fwd: Vec2; running: boolean; flash: boolean; night: boolean; indoors: boolean; dog: Vec2; boxes: readonly Box[]; nooks: readonly Vec2[] }
+export interface Ctx { t: number; player: Vec2; fwd: Vec2; running: boolean; flash: boolean; night: boolean; indoors: boolean; dog: Vec2; boxes: readonly Box[]; nooks: readonly Vec2[]; area: Box | null }
 export interface Tick { damage: number; screamed: boolean; near: boolean; died: Vec2[] }
 
 function figure(kind: Kind) {
@@ -85,11 +85,13 @@ export class Enemies {
         const snap = (v: number) => lines.reduce((m, l) => (Math.abs(l - v) < Math.abs(m - v) ? l : m));
         if (Math.random() < 0.5) p.x = snap(p.x) + (Math.random() - 0.5) * 3; else p.z = snap(p.z) + (Math.random() - 0.5) * 3;
         const lim = (CFG.blocks / 2) * CFG.pitch;
-        if (Math.abs(p.x) < lim && Math.abs(p.z) < lim && Math.hypot(p.x - c.player.x, p.z - c.player.z) > 22) this.add('echo', resolveCircle(p, 0.4, c.boxes));
+        const inA = !c.area || (p.x > c.area.minX + 2 && p.x < c.area.maxX - 2 && p.z > c.area.minZ + 2 && p.z < c.area.maxZ - 2);
+        if (inA && Math.abs(p.x) < lim && Math.abs(p.z) < lim && Math.hypot(p.x - c.player.x, p.z - c.player.z) > 22) this.add('echo', resolveCircle(p, 0.4, c.boxes));
       }
       c.nooks.forEach((n, i) => {
         const d = Math.hypot(n.x - c.player.x, n.z - c.player.z);
-        if (!this.usedNooks.has(i) && d > 24 && d < 50 && this.list.filter((e) => e.kind === 'screamer').length < 2) { this.usedNooks.add(i); this.add('screamer', n); }
+        const ok = !c.area || (n.x > c.area.minX && n.x < c.area.maxX && n.z > c.area.minZ && n.z < c.area.maxZ);
+        if (ok && !this.usedNooks.has(i) && d > 18 && d < 50 && this.list.filter((e) => e.kind === 'screamer').length < 2) { this.usedNooks.add(i); this.add('screamer', n); }
       });
     }
     for (let i = this.list.length - 1; i >= 0; i--) {
