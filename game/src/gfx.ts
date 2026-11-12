@@ -1,13 +1,9 @@
 /** Графика «как на PS1»: вершины прилипают к сетке экрана, текстуры без сглаживания, рисуются кодом. */
 import * as THREE from 'three';
 
-/** Материал с «дрожащими» вершинами. */
 export function ps1<T extends THREE.Material>(mat: T): T {
-  mat.onBeforeCompile = (sh) => {
-    sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
-      vec2 snapRes = vec2(160.0, 120.0);
-      gl_Position.xy = floor(gl_Position.xy / gl_Position.w * snapRes + 0.5) / snapRes * gl_Position.w;`);
-  };
+  // Раньше вершины «прилипали» к грубой сетке экрана, как на PS1. На домах и окнах это давало рябь
+  // (замечание Артёма 12.11.2026), поэтому эффект выключен: стиль держится на текстурах и низком разрешении.
   return mat;
 }
 export const lambert = (o: THREE.MeshLambertMaterialParameters) => ps1(new THREE.MeshLambertMaterial(o));

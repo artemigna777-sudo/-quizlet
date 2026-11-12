@@ -192,10 +192,10 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     /** Окно на внешней стене: side 0 — фасад (+z), 1 — задняя, 2 — левая (−x), 3 — правая. */
     const window3 = (side: number, u: number, y: number, balcony = false) => {
       const ry = [0, Math.PI, -Q, Q][side];
-      const pos = side === 0 ? [u, y, 5.03] : side === 1 ? [u, y, -5.03] : side === 2 ? [-5.03, y, u] : [5.03, y, u];
+      const pos = side === 0 ? [u, y, 5.06] : side === 1 ? [u, y, -5.06] : side === 2 ? [-5.06, y, u] : [5.06, y, u];
       WM.compose(new THREE.Vector3(pos[0], pos[1], pos[2]), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), S1);
       const wm = WM.clone();
-      piece(frameGeo, trimMat, 0, 0, 0, wm); piece(glassGeo, glassMat, 0, 0, 0.03, wm); piece(sillGeo, trimMat, 0, -0.82, 0.08, wm);
+      piece(frameGeo, trimMat, 0, 0, 0, wm); piece(glassGeo, glassMat, 0, 0, 0.05, wm); piece(sillGeo, trimMat, 0, -0.82, 0.08, wm);
       if (balcony) {
         piece(new THREE.BoxGeometry(2.2, 0.12, 1.0), plinthMat, 0, -0.95, 0.5, wm); piece(new THREE.BoxGeometry(2.2, 0.9, 0.06), railMat, 0, -0.45, 0.98, wm);
         piece(new THREE.BoxGeometry(0.06, 0.9, 1.0), railMat, -1.08, -0.45, 0.5, wm); piece(new THREE.BoxGeometry(0.06, 0.9, 1.0), railMat, 1.08, -0.45, 0.5, wm);
