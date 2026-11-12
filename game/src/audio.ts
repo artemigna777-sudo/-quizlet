@@ -4,6 +4,7 @@ export class Sound {
   private master!: GainNode;
   private world!: GainNode;
   private noise!: GainNode;
+  private drone!: GainNode;
   enabled = true;
 
   /** Запускается по первому касанию: так требуют браузеры. */
@@ -34,6 +35,11 @@ export class Sound {
       return g;
     };
     loop('lowpass', 320, 0.16, this.world); // ветер
+    // Ночной гул: два низких тона с биением.
+    this.drone = ctx.createGain();
+    this.drone.gain.value = 0;
+    this.drone.connect(this.world);
+    for (const f of [55, 58.2, 110.7]) { const o = ctx.createOscillator(); o.type = f > 100 ? 'triangle' : 'sine'; o.frequency.value = f; const g = ctx.createGain(); g.gain.value = f > 100 ? 0.25 : 1; o.connect(g).connect(this.drone); o.start(); }
     this.noise = loop('highpass', 2500, 0, this.master); // помехи стирания
   }
 
@@ -43,6 +49,10 @@ export class Sound {
     this.world.gain.value = this.enabled ? 1 - p * 0.92 : 0;
     this.noise.gain.value = this.enabled ? p * p * 0.22 : 0;
   }
+
+  /** Ночью — низкий гул; чем ближе опасность, тем он громче. */
+  setNight(k: number) { if (this.ctx) this.drone.gain.setTargetAtTime(this.enabled ? k * 0.2 : 0, this.ctx.currentTime, 0.8); }
+  heart() { this.tone(62, 38, 0.16, 0.5); setTimeout(() => this.tone(55, 34, 0.2, 0.35), 170); }
 
   private tone(freq: number, to: number, dur: number, gain: number, type: OscillatorType = 'sine', bus?: AudioNode) {
     const ctx = this.ctx;

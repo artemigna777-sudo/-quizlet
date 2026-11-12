@@ -33,13 +33,15 @@ export class Shooter {
     this.mesh.visible = false;
   }
 
-  update(dt: number, player: Vec2, fwd: Vec2, lamps: readonly Lamp[]) {
+  /** nights — сколько ночей прошло: с каждой ночью фигура встаёт ближе и дольше не уходит. */
+  update(dt: number, player: Vec2, fwd: Vec2, lamps: readonly Lamp[], nights = 1) {
+    const near = Math.max(9, 24 - nights * 4), flee = Math.max(5, 16 - nights * 3);
     this.appeared = false;
     if (this.mesh.visible) {
       this.life -= dt;
       const d = Math.hypot(this.mesh.position.x - player.x, this.mesh.position.z - player.z);
       this.mesh.rotation.y = Math.atan2(player.x - this.mesh.position.x, player.z - this.mesh.position.z);
-      if (d < 15 || this.life <= 0) { this.mesh.visible = false; this.timer = 22 + Math.random() * 20; }
+      if (d < flee || this.life <= 0) { this.mesh.visible = false; this.timer = 22 + Math.random() * 20; }
       return;
     }
     this.timer -= dt;
@@ -48,13 +50,13 @@ export class Shooter {
     const ok = lamps.filter((l) => {
       const dx = l.lx - player.x, dz = l.lz - player.z;
       const d = Math.hypot(dx, dz);
-      return l.mode !== 'off' && d > 22 && d < 38 && (dx * fwd.x + dz * fwd.z) / d > 0.6;
+      return l.mode !== 'off' && d > near && d < near + 16 && (dx * fwd.x + dz * fwd.z) / d > 0.6;
     });
     if (!ok.length) { this.timer = 3; return; }
     const l = ok[Math.floor(Math.random() * ok.length)];
     this.mesh.position.set(l.lx, 0, l.lz);
     this.mesh.visible = true;
-    this.life = 6;
+    this.life = 6 + nights * 1.5;
     this.appeared = true;
   }
 }

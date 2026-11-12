@@ -20,8 +20,8 @@ import { AREA, buildWorld, inArea } from './world';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 type Mode = 'menu' | 'play' | 'card' | 'erased' | 'pause' | 'peek' | 'cine';
-interface Save extends YardState { loot: string[]; food: number; water: number; ammo: number; axe: boolean; gun: boolean; vit: Vitals; tod: number; parts: number; axeLvl: number; gunLvl: number; intro: boolean; nightSeen: boolean; free: boolean; met: boolean; zstage: number }
-const FRESH: Save = { found: [], taken: [], hold: null, loot: [], food: 0, water: 0, ammo: 0, axe: false, gun: false, vit: { hp: 100, food: 80, water: 75 }, tod: SURV.startTime, parts: 0, axeLvl: 0, gunLvl: 0, intro: false, nightSeen: false, free: false, met: false, zstage: 0 };
+interface Save extends YardState { loot: string[]; food: number; water: number; ammo: number; axe: boolean; gun: boolean; vit: Vitals; tod: number; parts: number; axeLvl: number; gunLvl: number; intro: boolean; nightSeen: boolean; free: boolean; met: boolean; zstage: number; nights: number }
+const FRESH: Save = { found: [], taken: [], hold: null, loot: [], food: 0, water: 0, ammo: 0, axe: false, gun: false, vit: { hp: 100, food: 80, water: 75 }, tod: SURV.startTime, parts: 0, axeLvl: 0, gunLvl: 0, intro: false, nightSeen: false, free: false, met: false, zstage: 0, nights: 0 };
 
 function loadSave(): Save {
   const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -33,7 +33,7 @@ function loadSave(): Save {
       found: strs(v.found), taken, hold: typeof v.hold === 'string' && taken.includes(v.hold) ? v.hold : null, loot: strs(v.loot),
       food: num(v.food, 0, 99), water: num(v.water, 0, 99), ammo: num(v.ammo, 0), axe: v.axe === true, gun: v.gun === true,
       vit: { hp: Math.max(20, num(v.vit?.hp, 100, 100)), food: num(v.vit?.food, 80, 100), water: num(v.vit?.water, 75, 100) }, tod: num(v.tod, SURV.startTime, 0.9999),
-      parts: num(v.parts, 0, 99), axeLvl: num(v.axeLvl, 0, 1), gunLvl: num(v.gunLvl, 0, 1), intro: v.intro === true, nightSeen: v.nightSeen === true, free: v.free === true, met: v.met === true, zstage: num(v.zstage, 0, 4),
+      parts: num(v.parts, 0, 99), axeLvl: num(v.axeLvl, 0, 1), gunLvl: num(v.gunLvl, 0, 1), intro: v.intro === true, nightSeen: v.nightSeen === true, free: v.free === true, met: v.met === true, zstage: num(v.zstage, 0, 4), nights: num(v.nights, 0, 99),
     };
   } catch { return structuredClone(FRESH); }
 }
@@ -122,6 +122,9 @@ async function boot() {
   let growlT = 0;
   let drops = 0;
   let edgeT = -99;
+  let heartT = 0;
+  let wasNight = false;
+  let goalText = '';
 
   // Качество: «высокое» — чётче и с тенями, «обычное» — для слабых телефонов. Игра сама понижает его, если тормозит.
   const QKEY = 'erased-town:quality';
@@ -467,7 +470,7 @@ async function boot() {
       else if (!yardHome) goal = memories.filter((m) => !m.found).sort((a, b) => Math.hypot(a.at.x - player.pos.x, a.at.z - player.pos.z) - Math.hypot(b.at.x - player.pos.x, b.at.z - player.pos.z))[0]?.at ?? null;
       dog.update(dt, t, player.pos, fwd, goal, 90, world.boxes);
       if (dog.barked) sound.bark();
-      if (night && !siege) { shooter.update(dt, player.pos, fwd, world.lamps); if (shooter.appeared) sound.sting(); } else shooter.mesh.visible = false;
+      if (night && !siege) { shooter.update(dt, player.pos, fwd, world.lamps, Math.max(1, st.nights)); if (shooter.appeared) sound.sting(); } else shooter.mesh.visible = false;
       // Зоя поворачивается к тому, кто вошёл.
       const zd = Math.hypot(player.pos.x - zoya.root.position.x, player.pos.z - zoya.root.position.z);
       if (zd < 7) { const want = Math.atan2(player.pos.x - zoya.root.position.x, player.pos.z - zoya.root.position.z); let dy = want - zoya.root.rotation.y; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2; zoya.root.rotation.y += dy * Math.min(1, dt * 3); }
@@ -484,6 +487,11 @@ async function boot() {
       const tick = enemies.update(dt, { t, player: player.pos, fwd, running: input.run && player.moving, flash: player.flashlightOn, night, indoors, dog: dog.pos, boxes: world.boxes, nooks: world.nooks, area: st.free ? null : AREA, siege: !!siege });
       if (tick.damage) { st.vit = hurt(st.vit, tick.damage); hitT = 1; sound.pain(); }
       if (tick.screamed) sound.scream();
+      if (night && !wasNight) st.nights++;
+      wasNight = night;
+      heartT -= dt;
+      if (tick.near && heartT <= 0) { heartT = st.vit.hp < 40 ? 0.6 : 0.95; sound.heart(); }
+      sound.setNight(night ? (tick.near ? 1 : 0.45) : 0);
       growlT -= dt;
       if (tick.near && growlT <= 0) { growlT = 5; sound.growl(); }
       for (const p of tick.died) {
@@ -532,6 +540,15 @@ async function boot() {
     // Интерфейс.
     const fov = zoom ? 20 : 70;
     if (Math.abs(player.camera.fov - fov) > 0.1) { player.camera.fov += (fov - player.camera.fov) * Math.min(1, dt * 14); player.camera.updateProjectionMatrix(); }
+    // Цель — одной строкой сверху.
+    const holdIt = st.hold ? itemOf(st.hold) : null, nextHome = yardGoal(st);
+    const goalNow = st.free ? 'Город открыт. Вторая глава — скоро'
+      : siege ? 'Продержись до рассвета'
+        : !st.met ? 'Иди за Тузиком: во втором доме кто-то есть'
+          : holdIt ? `Верни вещь хозяину: ${holdIt.name} → дом ${homeOf(holdIt.owner).num}`
+            : nextHome ? `Найди вещь в доме ${homeOf(nextHome).num}`
+              : allFound() ? (arms.hasAxe ? 'Поговори с Зоей' : 'Возьми топор в пне во дворе') : 'Осмотри двор: Тузик что-то чует';
+    if (goalNow !== goalText) { goalText = goalNow; $('goal').textContent = goalNow; }
     $('binoMask').style.opacity = zoom ? '1' : '0';
     const label = near ? `взять: ${near.title.toLowerCase()}` : spot ? spotLabel(spot) : '';
     $('prompt').style.display = label ? 'block' : 'none';
