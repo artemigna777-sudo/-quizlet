@@ -95,6 +95,22 @@ export async function buildPlaces(scene: THREE.Scene, boxes: Box[], lootSites: r
     loot(`loot:w:${i}`, k < 0.4 ? 'food' : k < 0.74 ? 'water' : k < 0.87 ? 'ammo' : 'parts', s.x, 0.05 + 0.27, s.z);
   });
 
+  // ───────── Вещи на тротуарах: мусор, бочки, покрышки, ящики, стулья ─────────
+  const junk = await Promise.all(['trashbag', 'barrel_03', 'old_tyre', 'wooden_crate_02', 'plastic_monobloc_chair_01', 'WetFloorSign_01', 'planter_box_01', 'metal_jug', 'painted_wooden_stool', 'football'].map(loadModel));
+  const inside = (x: number, z: number) => boxes.some((q) => x > q.minX - 0.7 && x < q.maxX + 0.7 && z > q.minZ - 0.7 && z < q.maxZ + 0.7);
+  for (let bx = -3; bx <= 3; bx++) for (let bz = -3; bz <= 3; bz++) for (let n = 0; n < 5; n++) {
+    if (bx === 0 && bz === 0) continue; // во дворе всё расставлено вручную
+    const cx = bx * 36, cz = bz * 36, side = Math.floor(r() * 4), u = (r() - 0.5) * 22, e = 11.6 + r() * 1.0;
+    const x = cx + (side === 0 ? u : side === 1 ? u : side === 2 ? -e : e), z = cz + (side === 0 ? -e : side === 1 ? e : u);
+    if (inside(x, z)) continue;
+    const k = Math.floor(r() * junk.length), m = junk[k], o = m.root.clone();
+    o.position.set(x, 0.05, z); o.rotation.y = r() * 6.3;
+    if (k === 2 && r() < 0.5) o.rotation.z = Math.PI / 2;
+    scene.add(o);
+    if (k === 1 || k === 3) solid(x - 0.4, z - 0.4, x + 0.4, z + 0.4);
+    if (k === 0 && r() < 0.6) { const o2 = m.root.clone(); o2.position.set(x + 0.5, 0.05, z + 0.3); o2.rotation.y = r() * 6.3; o2.scale.setScalar(0.8 + r() * 0.4); scene.add(o2); }
+  }
+
   return {
     spots,
     inside: (p) => p.x > X0 && p.x < X1 && p.z > Z0 && p.z < Z1,

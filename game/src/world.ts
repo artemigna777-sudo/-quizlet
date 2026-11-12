@@ -3,6 +3,7 @@
  * гаражи и парки, по краям — частный сектор с деревянными домами. День и ночь меняют небо, туман и свет.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CFG, type Vec2 } from './config';
 import { canvasTex, lambert } from './gfx';
 import { rng, streetLines, type Box } from './logic';
@@ -81,6 +82,11 @@ export function buildWorld(): World {
     quad(v - 0.16, c - 1.3, v + 0.16, c + 1.3);
     quad(c - 1.3, v - 0.16, c + 1.3, v + 0.16);
   }
+  const inner0 = streetLines().slice(1, -1);
+  for (const lx of inner0) for (const lz of inner0) for (const s of [-1, 1]) for (let k = -3; k <= 3; k++) {
+    quad(lx + k * 1.15 - 0.3, lz + s * 6.4 - 1.1, lx + k * 1.15 + 0.3, lz + s * 6.4 + 1.1);
+    quad(lx + s * 6.4 - 1.1, lz + k * 1.15 - 0.3, lx + s * 6.4 + 1.1, lz + k * 1.15 + 0.3);
+  }
   const dashGeo = new THREE.BufferGeometry();
   dashGeo.setAttribute('position', new THREE.Float32BufferAttribute(dashV, 3));
   dashGeo.computeVertexNormals();
@@ -127,6 +133,24 @@ export function buildWorld(): World {
   const dark = lambert({ color: 0x1c1c20 });
   const metal = lambert({ color: 0x5a5e66 });
 
+  const detail: THREE.BufferGeometry[] = [], rails: THREE.BufferGeometry[] = [], curbs: THREE.BufferGeometry[] = [];
+  const bit = (to: THREE.BufferGeometry[], w: number, h: number, d: number, x: number, y: number, z: number) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); to.push(g); };
+  /** Цоколь, парапет на крыше, балконы по длинным сторонам, будки и антенны. */
+  const dress = (x: number, z: number, w: number, d: number, h: number, floorH: number, balconies: boolean) => {
+    bit(detail, w + 0.16, 0.5, d + 0.16, x, 0.25, z);
+    for (const s of [-1, 1]) { bit(detail, w + 0.3, 0.45, 0.25, x, h + 0.2, z + s * (d / 2)); bit(detail, 0.25, 0.45, d + 0.3, x + s * (w / 2), h + 0.2, z); }
+    bit(detail, 2.2, 1.5, 2.2, x + (r() - 0.5) * (w - 4), h + 0.75, z + (r() - 0.5) * (d - 4));
+    if (r() < 0.6) bit(rails, 0.06, 3.2, 0.06, x + (r() - 0.5) * (w - 2), h + 1.6, z + (r() - 0.5) * (d - 2));
+    if (!balconies) return;
+    const floors = Math.round(h / floorH), alongX = w >= d, len = alongX ? w : d, n = Math.floor(len / 6);
+    for (let f = 1; f < floors; f++) for (let k = 0; k < n; k++) for (const s of [-1, 1]) {
+      if (r() < 0.25) continue;
+      const u = -len / 2 + 3 + k * 6 + (f % 2 ? 0 : 1.5), y = f * floorH + 0.1, off = (alongX ? d : w) / 2 + 0.55;
+      if (Math.abs(u) > len / 2 - 1.5) continue;
+      if (alongX) { bit(detail, 2.6, 0.14, 1.1, x + u, y, z + s * off); bit(rails, 2.6, 1.0, 0.07, x + u, y + 0.55, z + s * (off + 0.52)); bit(rails, 0.07, 1.0, 1.1, x + u - 1.28, y + 0.55, z + s * off); bit(rails, 0.07, 1.0, 1.1, x + u + 1.28, y + 0.55, z + s * off); }
+      else { bit(detail, 1.1, 0.14, 2.6, x + s * off, y, z + u); bit(rails, 0.07, 1.0, 2.6, x + s * (off + 0.52), y + 0.55, z + u); bit(rails, 1.1, 1.0, 0.07, x + s * off, y + 0.55, z + u - 1.28); bit(rails, 1.1, 1.0, 0.07, x + s * off, y + 0.55, z + u + 1.28); }
+    }
+  };
   /** Коробка дома с разными текстурами на длинных и коротких стенах. */
   const building = (x: number, z: number, w: number, d: number, h: number, tex: (rx: number, ry: number) => THREE.Texture, bay: number, floorH: number, roof: THREE.Material = roofFlat) => {
     const fl = Math.round(h / floorH);
@@ -135,6 +159,7 @@ export function buildWorld(): World {
     m.position.set(x, h / 2, z);
     scene.add(m);
     houses.push({ box: solid(x, z, w, d), h });
+    dress(x, z, w, d, h, floorH, floorH === 3 && h > 8);
     return m;
   };
   const box = (x: number, y: number, z: number, w: number, h: number, d: number, mat: THREE.Material, collide = false) => {
@@ -214,6 +239,7 @@ export function buildWorld(): World {
       : ring === 1 ? 'panel' : ring === 3 ? 'village' : pick(['five', 'five', 'shops', 'garages', 'park', 'school', 'panel'] as const);
     const slab = new THREE.Mesh(new THREE.BoxGeometry(inner, 0.05, inner), green || kind === 'park' ? grassMat : slabMat);
     slab.position.set(cx, 0.025, cz);
+    for (const s of [-1, 1]) { bit(curbs, inner + 0.3, 0.16, 0.3, cx, 0.08, cz + s * (inner / 2)); bit(curbs, 0.3, 0.16, inner + 0.3, cx + s * (inner / 2), 0.08, cz); }
     scene.add(slab);
     const flip = r() < 0.5;
     const P = (lx: number, lz: number): [number, number] => (flip ? [cx + lz, cz + lx] : [cx + lx, cz + lz]);
@@ -309,6 +335,23 @@ export function buildWorld(): World {
     }
   }
 
+  // Брошенные автобусы.
+  const busTex = canvasTex(64, 16, (g) => { g.fillStyle = '#d8c84a'; g.fillRect(0, 0, 64, 16); g.fillStyle = '#e8e4d8'; g.fillRect(0, 9, 64, 3); g.fillStyle = '#2a3a50'; for (let x = 3; x < 60; x += 10) g.fillRect(x, 2, 8, 6); g.fillStyle = '#8a3a2a'; g.fillRect(0, 13, 64, 3); });
+  const busMat = lambert({ map: busTex });
+  const bus = (x: number, z: number, alongX: boolean) => {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(9.5, 2.5, 2.4), busMat);
+    body.position.y = 1.65;
+    g.add(body);
+    for (const wx of [-3.2, 3.2]) for (const wz of [-1.15, 1.15]) { const wh = new THREE.Mesh(wheelGeo, dark); wh.scale.setScalar(1.5); wh.rotation.x = Math.PI / 2; wh.position.set(wx, 0.48, wz); g.add(wh); }
+    g.position.set(x, 0, z);
+    g.rotation.y = (alongX ? 0 : Math.PI / 2) + (r() - 0.5) * 0.5;
+    scene.add(g);
+    if (alongX) solid(x, z, 9.5, 2.8); else solid(x, z, 2.8, 9.5);
+  };
+  const sl = streetLines();
+  for (let n = 0; n < 5; n++) { const i = 1 + Math.floor(r() * (sl.length - 2)), c = first + Math.floor(r() * CFG.blocks) * CFG.pitch + (r() - 0.5) * 8; if (Math.abs(sl[i]) === 18 && Math.abs(c) < 30) continue; if (r() < 0.5) bus(c, sl[i] + 1.5, true); else bus(sl[i] - 1.5, c, false); }
+
   // ───────── Улицы: машины, остановки, урны ─────────
   const lines = streetLines();
   for (let i = 0; i < lines.length; i++) for (let b = 0; b < CFG.blocks; b++) {
@@ -354,6 +397,14 @@ export function buildWorld(): World {
       addLamp(c, lines[i] + side * 4.5, 0, -side);
     }
   }
+  const wire: number[] = [];
+  const span2 = (a: Lamp, b: Lamp) => { for (let k = 0; k < 6; k++) { const t0 = k / 6, t1 = (k + 1) / 6, sag = (t: number) => 4.6 - Math.sin(t * Math.PI) * 0.9; wire.push(a.x + (b.x - a.x) * t0, sag(t0), a.z + (b.z - a.z) * t0, a.x + (b.x - a.x) * t1, sag(t1), a.z + (b.z - a.z) * t1); } };
+  for (let k = 0; k + 2 < lamps.length; k++) { const a = lamps[k], b = lamps[k + 2]; if (Math.hypot(a.x - b.x, a.z - b.z) < 40) span2(a, b); }
+  const wireGeo = new THREE.BufferGeometry();
+  wireGeo.setAttribute('position', new THREE.Float32BufferAttribute(wire, 3));
+  scene.add(new THREE.LineSegments(wireGeo, new THREE.LineBasicMaterial({ color: 0x14141a })));
+  // Все мелкие детали города — тремя сетками.
+  scene.add(new THREE.Mesh(mergeGeometries(detail), lambert({ color: 0x8a8a8e })), new THREE.Mesh(mergeGeometries(rails), lambert({ color: 0x4a5560 })), new THREE.Mesh(mergeGeometries(curbs), lambert({ color: 0xa8a8a4 })));
   const pool = [0, 1, 2].map(() => { const l = new THREE.PointLight(0xbcd2ff, 0, 16, 1.2); scene.add(l); return l; });
 
   // ───────── Небо ─────────
