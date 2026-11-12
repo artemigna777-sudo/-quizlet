@@ -97,6 +97,16 @@
 - `wooden_table_02` — https://polyhaven.com/a/wooden_table_02
 - `worn_metal_rack` — https://polyhaven.com/a/worn_metal_rack
 
+## Люди и их движения — Adobe Mixamo
+
+Персонажи (боец в противогазе, женщина в свитере) и анимации (ходьба, бег, удар, падение, крик и другие) — с сайта
+mixamo.com. Mixamo разрешает бесплатно использовать их в играх, в том числе коммерческих; раздавать исходные файлы
+отдельно нельзя, поэтому в репозитории лежат только собранные для игры `public/people/*.glb`.
+
+## Голоса — Fish Audio
+
+Реплики героя и тёти Зои синтезированы в Fish Audio (`tools/voice.mjs`): голоса «Молодой Рассказчик» и «Женский голос».
+
 ## Шрифты
 
 - Caveat, Russo One — лицензия SIL Open Font License.

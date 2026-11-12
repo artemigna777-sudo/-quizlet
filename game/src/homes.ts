@@ -12,7 +12,7 @@ import { loadModel, type Proto } from './models';
 import { HOMES, ITEMS, type HomeId, type Room } from './story';
 
 export interface Spot {
-  id: string; kind: 'note' | 'item' | 'gate' | 'loot' | 'bed' | 'bench'; home?: HomeId; room: Room; at: Vec2;
+  id: string; kind: 'note' | 'item' | 'gate' | 'loot' | 'bed' | 'bench' | 'talk'; home?: HomeId; room: Room; at: Vec2;
   title: string; text: string; mesh: THREE.Object3D | null; loot?: LootKind;
 }
 export interface Homes {

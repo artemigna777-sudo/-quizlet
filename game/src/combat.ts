@@ -5,40 +5,15 @@
  */
 import * as THREE from 'three';
 import { CFG, type Vec2 } from './config';
-import { lambert } from './gfx';
 import { resolveCircle, streetLines, type Box } from './logic';
 import { axeMesh, gunMesh } from './loot';
+import type { Actor, Look } from './people';
 
 export const WEAPON = { axeDmg: 40, axeRange: 2.4, axeCool: 0.6, gunDmg: 34, gunRange: 45, gunCool: 0.13 } as const;
 type Kind = 'echo' | 'screamer';
-interface Enemy { kind: Kind; mesh: THREE.Group; mat: THREE.MeshLambertMaterial; pos: Vec2; hp: number; aware: boolean; cool: number; stun: number; dying: number; dir: number; turnT: number; rush: number; gait: number }
-export interface Ctx { t: number; player: Vec2; fwd: Vec2; running: boolean; flash: boolean; night: boolean; indoors: boolean; dog: Vec2; boxes: readonly Box[]; nooks: readonly Vec2[]; area: Box | null }
+interface Enemy { kind: Kind; mesh: THREE.Group; actor: Actor; scream: number; dead: boolean; pos: Vec2; hp: number; aware: boolean; cool: number; stun: number; dying: number; dir: number; turnT: number; rush: number; gait: number }
+export interface Ctx { t: number; player: Vec2; fwd: Vec2; running: boolean; flash: boolean; night: boolean; indoors: boolean; dog: Vec2; boxes: readonly Box[]; nooks: readonly Vec2[]; area: Box | null; siege?: boolean }
 export interface Tick { damage: number; screamed: boolean; near: boolean; died: Vec2[] }
-
-function figure(kind: Kind) {
-  const g = new THREE.Group();
-  const mat = lambert({ color: kind === 'echo' ? 0x30333c : 0xb8b4a8, transparent: true }) as THREE.MeshLambertMaterial;
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(kind === 'echo' ? 0.28 : 0.16, kind === 'echo' ? 0.42 : 0.2, 1.5, 7), mat);
-  body.position.y = 0.95;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 7, 6), mat);
-  head.position.y = 1.85;
-  g.add(body, head);
-  if (kind === 'echo') {
-    const hood = new THREE.Mesh(new THREE.ConeGeometry(0.27, 0.45, 7), mat);
-    hood.position.y = 2.02;
-    const eye = new THREE.MeshBasicMaterial({ color: 0xe8ecff });
-    const e1 = new THREE.Mesh(new THREE.CircleGeometry(0.04, 6), eye), e2 = e1.clone();
-    e1.position.set(-0.08, 1.88, 0.2); e2.position.set(0.08, 1.88, 0.2);
-    g.add(hood, e1, e2);
-  } else {
-    const mouth = new THREE.Mesh(new THREE.CircleGeometry(0.09, 8), new THREE.MeshBasicMaterial({ color: 0x100808 }));
-    mouth.position.set(0, 1.8, 0.2); mouth.scale.y = 1.6;
-    for (const s of [-1, 1]) { const arm = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.1, 0.07), mat); arm.position.set(s * 0.26, 1.0, 0); g.add(arm); }
-    g.add(mouth);
-    g.scale.setScalar(1.22);
-  }
-  return { g, mat };
-}
 
 /** Не загораживают ли стены отрезок (грубо, шагом полметра). */
 export function blocked(a: Vec2, b: Vec2, boxes: readonly Box[]): boolean {
@@ -56,14 +31,16 @@ export class Enemies {
   private nights = 0;
   private wasNight = false;
   private usedNooks = new Set<number>();
-  constructor(private scene: THREE.Scene) {}
+  constructor(private scene: THREE.Scene, private make: (look: Look) => Actor) {}
 
   private add(kind: Kind, pos: Vec2) {
-    const { g, mat } = figure(kind);
+    const actor = this.make(kind === 'echo' ? 'echo' : 'pale');
+    const g = actor.root;
+    if (kind === 'screamer') g.scale.setScalar(1.14);
     g.position.set(pos.x, 0, pos.z);
-    g.traverse((o) => { o.castShadow = true; });
+    actor.play('idle');
     this.scene.add(g);
-    this.list.push({ kind, mesh: g, mat, pos: { ...pos }, hp: kind === 'echo' ? 100 : 60, aware: false, cool: 0.6, stun: 0, dying: 0, dir: Math.random() * 6.28, turnT: 0, rush: 0, gait: 0 });
+    this.list.push({ kind, mesh: g, actor, scream: 0, dead: false, pos: { ...pos }, hp: kind === 'echo' ? 100 : 60, aware: false, cool: 0.6, stun: 0, dying: 0, dir: Math.random() * 6.28, turnT: 0, rush: 0, gait: 0 });
   }
   clear() { for (const e of this.list) this.scene.remove(e.mesh); this.list.length = 0; this.usedNooks.clear(); }
   /** Для проверок. */
@@ -77,8 +54,8 @@ export class Enemies {
     if (c.night && !c.indoors) {
       this.spawnT -= dt;
       const echoes = this.list.filter((e) => e.kind === 'echo' && !e.dying).length;
-      if (this.spawnT <= 0 && echoes < Math.min(6, 2 + this.nights)) {
-        this.spawnT = 7 + Math.random() * 6;
+      if (this.spawnT <= 0 && echoes < (c.siege ? 5 : Math.min(6, 2 + this.nights))) {
+        this.spawnT = c.siege ? 3 + Math.random() * 2.5 : 7 + Math.random() * 6;
         const lines = streetLines();
         const a = Math.random() * 6.28, d = 28 + Math.random() * 12;
         const p = { x: c.player.x + Math.sin(a) * d, z: c.player.z + Math.cos(a) * d };
@@ -98,13 +75,14 @@ export class Enemies {
       const e = this.list[i];
       const dx = c.player.x - e.pos.x, dz = c.player.z - e.pos.z;
       const d = Math.hypot(dx, dz) || 0.001;
-      if (e.dying > 0 || !c.night || d > 80) {
-        // Рассыпается помехами.
-        if (!e.dying) e.dying = 0.001;
+      if (e.hp <= 0 && !e.dead && !e.dying) out.died.push({ ...e.pos });
+      if (e.dying > 0 || e.hp <= 0 || !c.night || d > 80) {
+        // Падает и уходит в асфальт, как будто его стёрли.
+        if (!e.dead) { e.dead = true; e.dying = 0.001; e.actor.play('die', { once: true, speed: 2.2 }); }
         e.dying += dt;
-        e.mat.opacity = Math.max(0, 1 - e.dying * 2) * (Math.random() < 0.5 ? 0.4 : 1);
-        e.mesh.scale.y = Math.max(0.05, 1 - e.dying * 1.6) * (e.kind === 'screamer' ? 1.22 : 1);
-        if (e.dying > 0.55) { this.scene.remove(e.mesh); this.list.splice(i, 1); }
+        e.actor.update(dt);
+        if (e.dying > 1.7) e.mesh.position.y = -(e.dying - 1.7) * 1.6;
+        if (e.dying > 2.4) { this.scene.remove(e.mesh); this.list.splice(i, 1); }
         continue;
       }
       if (d < 16) out.near = true;
@@ -113,7 +91,8 @@ export class Enemies {
       let speed = 0, tx = dx / d, tz = dz / d;
       if (e.kind === 'echo') {
         const hears = d < 13 || (c.running && d < 30);
-        if (c.indoors && d > 3) e.aware = false; else if (hears && !blockedFar(e.pos, c.player, c.boxes, d)) e.aware = true;
+        if (c.siege) e.aware = true;
+        else if (c.indoors && d > 3) e.aware = false; else if (hears && !blockedFar(e.pos, c.player, c.boxes, d)) e.aware = true;
         if (e.aware) speed = 3.6;
         else {
           e.turnT -= dt;
@@ -124,8 +103,9 @@ export class Enemies {
         if (e.stun <= 0 && Math.hypot(c.dog.x - e.pos.x, c.dog.z - e.pos.z) < 1.8 && e.aware && Math.random() < dt * 0.8) e.stun = 1.6;
       } else {
         const lit = c.flash && d < 11 && (-dx * c.fwd.x - dz * c.fwd.z) / d > 0.82 && !blocked(e.pos, c.player, c.boxes);
-        if (!e.aware && (lit || d < 3.2)) { e.aware = true; e.rush = 4.5; out.screamed = true; }
-        if (e.aware) { e.rush -= dt; speed = 7.2; if (e.rush <= 0) e.dying = 0.001; }
+        if (!e.aware && (lit || d < 3.2)) { e.aware = true; e.rush = 5.4; e.scream = 0.9; out.screamed = true; }
+        e.scream = Math.max(0, e.scream - dt);
+        if (e.aware) { e.rush -= dt; speed = e.scream > 0 ? 0 : 7.2; if (e.rush <= 0) e.dying = 0.001; }
       }
       if (e.stun > 0) speed = 0;
       if (d < 1.25 && e.aware) {
@@ -141,11 +121,17 @@ export class Enemies {
         e.gait += moved;
         e.pos = next;
       }
-      e.mesh.position.set(e.pos.x, Math.abs(Math.sin(e.gait * 3)) * 0.05, e.pos.z);
+      const close = d < 1.25 && e.aware;
+      if (e.scream > 0) e.actor.play('scream', { speed: 1.6 });
+      else if (e.stun > 0) e.actor.play('hit', { speed: 1.5 });
+      else if (close) e.actor.play('attack', { speed: 1.4 });
+      else if (speed > 3) e.actor.play('run', { speed: speed > 6 ? 1.5 : 1 });
+      else if (speed > 0) e.actor.play('walk', { speed: 0.75 });
+      else e.actor.play('idle', { speed: e.kind === 'screamer' ? 0.15 : 1 });
+      e.actor.update(dt);
+      e.mesh.position.set(e.pos.x, 0, e.pos.z);
       e.mesh.rotation.y = Math.atan2(e.aware ? dx : tx, e.aware ? dz : tz);
       e.mesh.rotation.z = e.kind === 'screamer' && e.aware ? Math.sin(c.t * 40) * 0.08 : 0;
-      e.mat.opacity = e.kind === 'echo' ? (Math.random() < 0.08 ? 0.45 : 1) : 1;
-      if (e.hp <= 0) { e.dying = 0.001; out.died.push({ ...e.pos }); }
     }
     return out;
   }

@@ -1,0 +1,27 @@
+/** Длительности реплик в секундах. Файл пишет tools/voice.mjs. */
+export const VOICE_DUR: Record<string, number> = {
+  "h_end": 1.59,
+  "h_intro1": 2.79,
+  "h_intro2": 3.81,
+  "h_intro3": 2.77,
+  "h_night1": 2.3,
+  "h_night2": 3.4,
+  "h_night3": 1.36,
+  "h_wall": 3.74,
+  "m_gena": 7.97,
+  "m_nina": 9.72,
+  "m_tema": 6.19,
+  "m_zoya": 8.1,
+  "z_after1": 12.17,
+  "z_after2": 8.1,
+  "z_after3": 9.77,
+  "z_after4": 4.88,
+  "z_end1": 4.21,
+  "z_end2": 5.17,
+  "z_meet1": 6.06,
+  "z_meet2": 6.53,
+  "z_meet3": 11.57,
+  "z_noaxe": 6.37,
+  "z_siege1": 7.31,
+  "z_siege2": 5.69
+};

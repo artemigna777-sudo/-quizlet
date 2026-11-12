@@ -1,0 +1,97 @@
+<!doctype html><body>
+<script type="importmap">{"imports":{"three":"./three/build/three.module.js","three/addons/":"./three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { MeshoptSimplifier } from './node_modules/meshoptimizer/meshopt_simplifier.js';
+const load = (u) => new Promise((ok, bad) => new FBXLoader().load(u, ok, undefined, bad));
+const simplify = (geo, ratio) => {
+  // Группы материалов переносим на объединённую сетку: упрощаем каждую группу отдельно.
+  const groups = geo.groups.length ? geo.groups : [{ start: 0, count: geo.attributes.position.count, materialIndex: 0 }];
+  const tag = new Float32Array(geo.attributes.position.count);
+  groups.forEach((gr) => { for (let i = gr.start; i < gr.start + gr.count; i++) tag[i] = gr.materialIndex; });
+  geo.setAttribute('_mat', new THREE.BufferAttribute(tag, 1));
+  const g = mergeVertices(geo, 1e-4);
+  const idx = new Uint32Array(g.index.array), pos = new Float32Array(g.attributes.position.array), mt = g.attributes._mat.array;
+  const parts = [];
+  const uniq = [...new Set(groups.map((gr) => gr.materialIndex))].map((materialIndex) => ({ materialIndex }));
+  for (const gr of uniq) {
+    const sub = []; for (let i = 0; i < idx.length; i += 3) if (mt[idx[i]] === gr.materialIndex) sub.push(idx[i], idx[i + 1], idx[i + 2]);
+    if (!sub.length) continue;
+    const target = Math.max(3, Math.floor((sub.length * ratio) / 3) * 3);
+    let [res] = MeshoptSimplifier.simplify(new Uint32Array(sub), pos, 3, target, 0.05);
+    if (res.length > target * 1.3) [res] = MeshoptSimplifier.simplifySloppy ? [MeshoptSimplifier.simplifySloppy(new Uint32Array(sub), pos, 3, null, target, 0.05)[0]] : [res];
+    (window.LOG ??= []).push(sub.length / 3 + '→' + res.length / 3);
+    parts.push({ m: gr.materialIndex, res });
+  }
+  const remap = new Int32Array(pos.length / 3).fill(-1); let n = 0; const out = [];
+  const ng = new THREE.BufferGeometry();
+  for (const p of parts) { ng.addGroup(out.length, p.res.length, p.m); for (const v of p.res) { if (remap[v] < 0) remap[v] = n++; out.push(remap[v]); } }
+  for (const [name, a] of Object.entries(g.attributes)) {
+    if (name === '_mat') continue;
+    const arr = new a.array.constructor(n * a.itemSize);
+    for (let v = 0; v < remap.length; v++) if (remap[v] >= 0) for (let k = 0; k < a.itemSize; k++) arr[remap[v] * a.itemSize + k] = a.array[v * a.itemSize + k];
+    ng.setAttribute(name, new THREE.BufferAttribute(arr, a.itemSize, a.normalized));
+  }
+  ng.setIndex(new THREE.BufferAttribute(n > 65535 ? new Uint32Array(out) : new Uint16Array(out), 1));
+  if (geo.groups.length <= 1) ng.clearGroups();
+  return ng;
+};
+window.convert = async (modelUrl, clips, tex, ratio) => {
+  await MeshoptSimplifier.ready;
+  const o = await load(modelUrl);
+  const stat = [];
+  o.traverse((m) => { if (m.isMesh) { const before = m.geometry.attributes.position.count / 3; const g = simplify(m.geometry, ratio); if (g) { m.geometry = g; stat.push(Math.round(before) + '→' + g.index.count / 3); } else stat.push(Math.round(before) + ' (как есть)'); } });
+  await new Promise((r) => setTimeout(r, 3000)); // текстуры
+  const seen = new Map();
+  o.traverse((m) => {
+    if (!m.isMesh) return;
+    const mats = Array.isArray(m.material) ? m.material : [m.material];
+    mats.forEach((mat, i) => {
+      const map = mat.map;
+      const n = new THREE.MeshStandardMaterial({ name: mat.name, color: 0xffffff, roughness: 1, metalness: 0, transparent: mat.transparent, alphaTest: mat.transparent ? 0.4 : 0, side: mat.side });
+      if (map && map.image) {
+        let t = seen.get(map.image);
+        if (!t) {
+          const k = Math.min(1, tex / Math.max(map.image.width, map.image.height));
+          const c = document.createElement('canvas'); c.width = Math.round(map.image.width * k); c.height = Math.round(map.image.height * k);
+          c.getContext('2d').drawImage(map.image, 0, 0, c.width, c.height);
+          t = new THREE.CanvasTexture(c); t.flipY = map.flipY; t.colorSpace = THREE.SRGBColorSpace; t.wrapS = map.wrapS; t.wrapT = map.wrapT;
+          if (!mat.transparent) t.userData.mimeType = 'image/jpeg';
+          seen.set(map.image, t);
+        }
+        n.map = t;
+      } else n.color.copy(mat.color);
+      if (Array.isArray(m.material)) m.material[i] = n; else m.material = n;
+    });
+  });
+  // Имена костей у разных персонажей Mixamo отличаются приставкой, а рост — высотой таза: подгоняем дорожки.
+  let hips = null; o.traverse((b) => { if (b.isBone && /Hips$/.test(b.name) && !hips) hips = b; });
+  const prefix = hips.name.replace(/Hips$/, '');
+  const out = [];
+  for (const [name, file, inPlace] of clips) {
+    const a = await load(file);
+    const clip = a.animations.find((c) => c.duration > 0.1) ?? a.animations[0];
+    clip.name = name;
+    clip.tracks = clip.tracks.filter((t) => !t.name.endsWith('.scale'));
+    const src = clip.tracks.find((t) => /Hips\.position$/.test(t.name));
+    const srcPrefix = src ? src.name.replace(/Hips\.position$/, '') : prefix;
+    let srcHips = null; a.traverse((b) => { if (b.isBone && /Hips$/.test(b.name) && !srcHips) srcHips = b; });
+    const k = srcHips && srcHips.position.y > 1 ? hips.position.y / srcHips.position.y : 1;
+    for (const t of clip.tracks) {
+      if (srcPrefix !== prefix && t.name.startsWith(srcPrefix)) t.name = prefix + t.name.slice(srcPrefix.length);
+      if (/Hips\.position$/.test(t.name) && k !== 1) for (let i = 0; i < t.values.length; i++) t.values[i] *= k;
+    }
+    clip.tracks = clip.tracks.filter((t) => /\.quaternion$/.test(t.name) || /Hips\.position$/.test(t.name));
+    if (inPlace) for (const t of clip.tracks) if (/Hips\.position$/.test(t.name)) { const v = t.values; for (let i = 0; i < v.length; i += 3) { v[i] = v[0]; v[i + 2] = v[2]; } }
+    out.push(clip);
+  }
+  o.animations = [];
+  const buf = await new Promise((ok, bad) => new GLTFExporter().parse(o, ok, bad, { binary: true, animations: out, maxTextureSize: tex }));
+  const u8 = new Uint8Array(buf); let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return { b64: btoa(s), stat: window.LOG, prefix, clips: out.map((c) => c.name + ':' + c.duration.toFixed(2)) };
+};
+window.READY = true;
+</script>

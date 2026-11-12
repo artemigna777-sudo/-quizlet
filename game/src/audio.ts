@@ -58,6 +58,17 @@ export class Sound {
     o.start();
     o.stop(ctx.currentTime + dur + 0.02);
   }
+  // ───────── Голоса ─────────
+  private voice: HTMLAudioElement | null = null;
+  /** Произнести реплику (public/voice/<id>.mp3); null — замолчать. */
+  say(id: string | null) {
+    if (this.voice) { this.voice.pause(); this.voice = null; }
+    if (!id || !this.enabled) return;
+    const a = new Audio(new URL(`voice/${id}.mp3`, document.baseURI).href);
+    a.volume = 1;
+    void a.play().catch(() => { /* звук ещё не разрешён */ });
+    this.voice = a;
+  }
   step() { this.tone(90, 45, 0.09, 0.22); }
   bark() { this.tone(520, 260, 0.13, 0.28, 'sawtooth'); setTimeout(() => this.tone(480, 230, 0.13, 0.24, 'sawtooth'), 190); }
   pickup() { this.tone(660, 660, 0.5, 0.16); setTimeout(() => this.tone(990, 990, 0.7, 0.14), 140); }
