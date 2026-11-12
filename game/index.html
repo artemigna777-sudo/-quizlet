@@ -42,6 +42,16 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 #card .paper{max-width:440px;padding:26px 24px;border-radius:18px;background:#efe6cf;color:#221a12;box-shadow:0 30px 80px rgba(0,0,0,.7);transform:rotate(-1.5deg)}
 #card .paper h2{margin:0 0 10px;font-family:Russo,sans-serif;font-weight:400;font-size:26px}
 #card .paper p{color:#3a2e22;font-size:18px}
+#card .paper p{white-space:pre-line;text-align:left;max-height:52dvh;overflow:auto}
+#card .paper small{display:block;color:#b0501a;font-family:Russo,sans-serif;letter-spacing:2px;font-size:12px;margin-bottom:6px}
+#card.hand .paper p{font-family:Caveat,cursive;font-weight:700;font-size:25px;line-height:1.15;color:#1f2a5a}
+#hold{margin-top:6px;font-size:13px;color:#cfd3dc;font-family:system-ui,sans-serif;font-weight:700}
+#hold b{color:#ffd9a0}
+#flash{position:fixed;inset:0;pointer-events:none;opacity:0;background:#fff3dc}
+#toast{white-space:pre-line}
+.go:disabled{opacity:.5}
+#prompt{bottom:calc(env(safe-area-inset-bottom) + 150px)}
+.touch #prompt{bottom:calc(env(safe-area-inset-bottom) + 260px)}
 #erased{background:#d9dde6;color:#111}
 #erased h1{color:#111}
 #erased p{color:#333}
@@ -51,7 +61,8 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 <canvas id="view"></canvas>
 <div id="vig"></div>
 <div id="static"></div>
-<div id="hud"><div id="mem">ВОСПОМИНАНИЯ <b id="memN">0</b>/3</div><div id="erase"><span>СТИРАНИЕ</span><i><b id="eraseBar"></b></i></div></div>
+<div id="flash"></div>
+<div id="hud"><div id="mem">ВОСПОМИНАНИЯ <b id="memN">0</b>/<span id="memAll">7</span><div id="hold" style="display:none">В РУКАХ: <b id="holdName"></b></div></div><div id="erase"><span>СТИРАНИЕ</span><i><b id="eraseBar"></b></i></div></div>
 <div id="toast"></div>
 <div id="prompt"><b id="promptText"></b></div>
 <div id="stick"><i></i></div>
@@ -62,12 +73,12 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 <div class="screen on" id="menu">
   <h1>СТЁРТЫЙ<br><span>ГОРОД</span></h1>
   <p>Ты не помнишь, кто ты. Город пуст. Рядом — только пёс со шрамом.</p>
-  <button class="go" id="start">ИГРАТЬ</button>
+  <button class="go" id="start" disabled>ЗАГРУЗКА…</button>
   <button class="ghost" id="reset" style="display:none">Начать заново</button>
   <small id="help"></small>
   <small>Ранняя версия. Игру придумывают зрители, код пишет нейросеть.</small>
 </div>
-<div class="screen" id="card"><div class="paper"><h2 id="cardTitle"></h2><p id="cardText"></p></div><button class="go" id="cardOk">ДАЛЬШЕ</button></div>
+<div class="screen" id="card"><div class="paper"><small id="cardKind"></small><h2 id="cardTitle"></h2><p id="cardText"></p></div><button class="go" id="cardOk">ДАЛЬШЕ</button></div>
 <div class="screen" id="erased"><h1>ТЕБЯ СТЁРЛИ</h1><p>Рядом не было никого, кто тебя помнит. Держись ближе к псу.</p><button class="go" id="again">ЕЩЁ РАЗ</button></div>
 <div class="screen" id="pause"><h1>ПАУЗА</h1><button class="go" id="resume">ПРОДОЛЖИТЬ</button></div>
 <script type="module" src="/src/main.ts"></script>

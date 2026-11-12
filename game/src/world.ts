@@ -87,7 +87,10 @@ export function buildWorld(): World {
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
       const w = 9 + r() * 2.2, d = 9 + r() * 2.2, h = 5.5 + r() * 5.5;
       const x = cx + sx * 6.6, z = cz + sz * 6.6;
-      const house = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), facades[Math.floor(r() * facades.length)]);
+      const facade = facades[Math.floor(r() * facades.length)];
+      // Центральный квартал — двор с настоящими домами (homes.ts).
+      if (cx === 0 && cz === 0) continue;
+      const house = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), facade);
       house.position.set(x, h / 2, z);
       scene.add(house);
       const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.72, 1.8, 4), roofMat);
