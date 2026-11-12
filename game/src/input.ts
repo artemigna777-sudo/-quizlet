@@ -7,6 +7,8 @@ export class Input {
   moveZ = 0; // вперёд
   run = false;
   hand = false;
+  fire = false;
+  zoom = false;
   private lookDX = 0;
   private lookDY = 0;
   private keys = new Set<string>();
@@ -21,6 +23,8 @@ export class Input {
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
     document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement === canvas; });
+    addEventListener('mousedown', (e) => { if (this.locked && e.button === 0) this.keys.add('held:fire'); });
+    addEventListener('mouseup', () => this.keys.delete('held:fire'));
     addEventListener('mousemove', (e) => { if (this.locked) { this.lookDX += e.movementX; this.lookDY += e.movementY; } });
     canvas.addEventListener('touchstart', (e) => this.onTouch(e, 'start'), { passive: false });
     canvas.addEventListener('touchmove', (e) => this.onTouch(e, 'move'), { passive: false });
@@ -79,6 +83,8 @@ export class Input {
     this.moveZ = z;
     this.run = run;
     this.hand = this.keys.has('KeyQ') || this.keys.has('held:hand');
+    this.zoom = this.keys.has('KeyV');
+    this.fire = this.keys.has('Space') || this.keys.has('held:fire');
     const d = { x: this.lookDX, y: this.lookDY };
     this.lookDX = this.lookDY = 0;
     return d;

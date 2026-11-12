@@ -6,12 +6,13 @@ import * as THREE from 'three';
 import type { Vec2 } from './config';
 import { canvasTex, lambert } from './gfx';
 import type { Box } from './logic';
+import { LOOT_NAME, lootMesh, type LootKind } from './loot';
 import { loadModel, type Proto } from './models';
 import { HOMES, ITEMS, type HomeId, type Room } from './story';
 
 export interface Spot {
-  id: string; kind: 'note' | 'item' | 'gate'; home: HomeId; room: Room; at: Vec2;
-  title: string; text: string; mesh: THREE.Object3D | null;
+  id: string; kind: 'note' | 'item' | 'gate' | 'loot'; home?: HomeId; room: Room; at: Vec2;
+  title: string; text: string; mesh: THREE.Object3D | null; loot?: LootKind;
 }
 export interface Homes {
   spots: Spot[];
@@ -19,16 +20,18 @@ export interface Homes {
   door(home: HomeId): Vec2;
   reveal(home: HomeId): void;
   hideItem(id: string): void;
+  /** В каком доме стоит точка (null — на улице). */
+  inside(p: Vec2): HomeId | null;
   update(t: number): void;
 }
 
 const FLOOR = 0.14;
 const H = 2.9;
-const SITE: Record<HomeId, { x: number; z: number; s: 1 | -1; wall: string; tint: number }> = {
-  nina: { x: 8, z: 8, s: 1, wall: '#6d6a58', tint: 0x8a7f5a },
-  zoya: { x: -8, z: 8, s: 1, wall: '#5c6a5e', tint: 0x6f8a70 },
-  gena: { x: -8, z: -8, s: -1, wall: '#5e5a66', tint: 0x77708a },
-  tema: { x: 8, z: -8, s: -1, wall: '#55647a', tint: 0x6a85a8 },
+const SITE: Record<HomeId, { x: number; z: number; s: 1 | -1; wall: string; tint: number; out: number }> = {
+  nina: { x: 8, z: 8, s: 1, wall: '#b0a878', tint: 0x8a7f5a, out: 0xe6d28a },
+  zoya: { x: -8, z: 8, s: 1, wall: '#8fae92', tint: 0x6f8a70, out: 0xa8d0a0 },
+  gena: { x: -8, z: -8, s: -1, wall: '#a098b8', tint: 0x77708a, out: 0xe0a898 },
+  tema: { x: 8, z: -8, s: -1, wall: '#88a4c8', tint: 0x6a85a8, out: 0x9cc0e0 },
 };
 const MODELS = ['Shelf_01', 'wooden_table_02', 'painted_wooden_nightstand', 'painted_wooden_shelves', 'painted_wooden_table', 'painted_wooden_bench',
   'painted_wooden_stool', 'painted_wooden_chair_01', 'painted_wooden_cabinet_02', 'dining_table', 'Television_01', 'vintage_day_bed', 'sofa_02',
@@ -52,12 +55,12 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(0, h - 4, w, 4);
     noise(g, w, h, 60, 0.18);
   }, [5, 1]) });
-  const outMat = lambert({ map: canvasTex(32, 32, (g, w, h) => {
-    g.fillStyle = '#34302e'; g.fillRect(0, 0, w, h);
-    g.strokeStyle = '#211e1d';
+  const outTex = canvasTex(32, 32, (g, w, h) => {
+    g.fillStyle = '#d8d4cc'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#a8a49c';
     for (let y = 0; y < h; y += 8) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); for (let x = (y / 8) % 2 ? 0 : 8; x < w; x += 16) { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + 8); g.stroke(); } }
-    noise(g, w, h, 80, 0.25);
-  }, [5, 1.5]) });
+    noise(g, w, h, 80, 0.12);
+  }, [5, 1.5]);
   const floorMat = lambert({ map: canvasTex(32, 32, (g, w, h) => {
     g.fillStyle = '#4a3a2a'; g.fillRect(0, 0, w, h);
     g.strokeStyle = '#2c2218';
@@ -66,12 +69,12 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     noise(g, w, h, 70, 0.2);
   }, [5, 5]) });
   const ceilMat = lambert({ color: 0x2a2a2e });
-  const upperMat = lambert({ map: canvasTex(64, 64, (g, w, h) => {
-    g.fillStyle = '#2c2828'; g.fillRect(0, 0, w, h);
-    noise(g, w, h, 200, 0.25);
-    for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) { g.fillStyle = '#08080b'; g.fillRect(7 + c * 20, 8 + r * 30, 12, 16); g.fillStyle = '#3a3634'; g.fillRect(5 + c * 20, 24 + r * 30, 16, 2); }
-  }) });
-  const roofMat = lambert({ color: 0x18151a });
+  const upperTex = canvasTex(64, 64, (g, w, h) => {
+    g.fillStyle = '#dcd8d0'; g.fillRect(0, 0, w, h);
+    noise(g, w, h, 200, 0.1);
+    for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) { g.fillStyle = '#f4f0e6'; g.fillRect(5 + c * 20, 6 + r * 30, 16, 20); g.fillStyle = '#2c3f5c'; g.fillRect(7 + c * 20, 8 + r * 30, 5, 16); g.fillRect(14 + c * 20, 8 + r * 30, 5, 16); }
+  });
+  const roofMat = lambert({ color: 0x6a3a30 });
   const woodMat = lambert({ map: canvasTex(32, 32, (g, w, h) => {
     g.fillStyle = '#7a5a36'; g.fillRect(0, 0, w, h);
     g.strokeStyle = '#4a3520';
@@ -95,6 +98,10 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     g.fillStyle = '#2a3350'; g.fillRect(2, 2, 5, 5); g.fillRect(9, 2, 5, 5);
   }), color: 0x9a9a9a });
   const basic = (color: number) => new THREE.MeshBasicMaterial({ color });
+  let seed = 77;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const bookMats = [0x8a3a30, 0x2f5a7a, 0x4a6a3a, 0xb89a4a, 0x5a3a6a, 0xc8c0a8, 0x3a3a44].map((c) => lambert({ color: c }));
+  const cupMats = [0xe8e4d8, 0x7aa0c0, 0xc86a4a].map((c) => lambert({ color: c }));
 
   const spots: Spot[] = [];
   const doors = new Map<HomeId, Vec2>();
@@ -118,6 +125,8 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       return box;
     };
     const inMat = paperMat(site.wall);
+    const outMat = lambert({ map: outTex, color: site.out });
+    const upperMat = lambert({ map: upperTex, color: site.out });
     /** Стена: inside — номер грани коробки, которая смотрит в комнату (0 +x, 1 −x, 4 +z, 5 −z), −1 — перегородка. */
     const wall = (x0: number, z0: number, x1: number, z1: number, inside: number, y0 = 0, y1 = H, collide = true) => {
       const mats = [0, 1, 2, 3, 4, 5].map((i) => (inside < 0 || i === inside ? inMat : outMat));
@@ -139,10 +148,10 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     floor.rotation.x = -Q; floor.position.y = FLOOR + 0.01;
     const ceil = new THREE.Mesh(new THREE.PlaneGeometry(9.5, 9.5), ceilMat);
     ceil.rotation.x = Q; ceil.position.y = H;
-    const hh = 6.5 + def.num * 0.7;
+    const hh = [6, 9, 6, 12][def.num - 1];
     const upper = new THREE.Mesh(new THREE.BoxGeometry(10, hh - H, 10), upperMat);
     upper.position.y = (hh + H) / 2 + 0.01;
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(7.2, 1.8, 4), roofMat);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(7.2, def.num % 2 ? 2.6 : 1.4, 4), roofMat);
     roof.position.y = hh + 0.9; roof.rotation.y = Math.PI / 4;
     g.add(floor, ceil, upper, roof);
     // Ковры и лампы под потолком.
@@ -174,6 +183,39 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     doors.set(def.id, W(0, 6.4));
 
     // ───────── Мебель и вещи ─────────
+    /** Книги на полках, посуда на столах: мебель не стоит пустой. */
+    const clutter = (obj: THREE.Object3D, id: ModelId) => {
+      const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.z = rz; obj.add(m); };
+      const shelf = (w: number, ys: number[]) => {
+        for (const y of ys) {
+          let x = -w / 2 + rnd() * 0.1;
+          while (x < w / 2 - 0.06) {
+            if (rnd() < 0.18) { x += 0.06 + rnd() * 0.12; continue; }
+            const t = 0.025 + rnd() * 0.03, h = 0.17 + rnd() * 0.09;
+            add(new THREE.BoxGeometry(t, h, 0.14), bookMats[Math.floor(rnd() * bookMats.length)], x + t / 2, y + h / 2, 0, rnd() < 0.1 ? 0.25 : 0);
+            x += t + 0.004;
+          }
+        }
+      };
+      if (id === 'Shelf_01') shelf(0.86, [0.07, 0.48, 0.88, 1.28, 1.68]);
+      else if (id === 'painted_wooden_shelves') shelf(0.4, [0.06, 0.42, 0.78]);
+      else if (id === 'wooden_table_02' || id === 'dining_table' || id === 'painted_wooden_table') {
+        const p = protos.get(id)!;
+        const top = p.size.y + 0.005, w = p.size.x * 0.4, d = p.size.z * 0.3;
+        for (let i = 0; i < 3; i++) {
+          const x = (rnd() - 0.5) * 2 * w, z = (rnd() - 0.5) * 2 * d;
+          if (rnd() < 0.5) add(new THREE.CylinderGeometry(0.035, 0.03, 0.08, 7), cupMats[Math.floor(rnd() * cupMats.length)], x, top + 0.04, z);
+          else if (rnd() < 0.6) add(new THREE.CylinderGeometry(0.1, 0.07, 0.015, 9), cupMats[0], x, top + 0.008, z);
+          else add(new THREE.BoxGeometry(0.16, 0.03, 0.22), bookMats[Math.floor(rnd() * bookMats.length)], x, top + 0.015, z);
+        }
+      } else if (id === 'painted_wooden_nightstand' || id === 'SchoolDesk_01') add(new THREE.CylinderGeometry(0.035, 0.03, 0.08, 7), cupMats[1], 0.1, protos.get(id)!.size.y * (id === 'SchoolDesk_01' ? 0.86 : 1) + 0.04, 0.05);
+    };
+    const loot = (kind: LootKind, name: string, room: Room, x: number, z: number, y: number) => {
+      const m = lootMesh(kind);
+      m.position.set(x, FLOOR + y, z);
+      (room === 'A' ? A : B).add(m);
+      spots.push({ id: `loot:${def.id}:${spots.length}`, kind: 'loot', home: def.id, room, at: W(x, z), title: name, text: '', mesh: m, loot: kind });
+    };
     const put = (room: THREE.Group, id: ModelId, x: number, z: number, rot = 0, o: { y?: number; s?: number; solid?: boolean; rx?: number; rz?: number } = {}) => {
       const p = protos.get(id)!;
       const k = o.s ?? 1;
@@ -182,6 +224,7 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       obj.position.set(x, FLOOR + (o.y ?? 0), z);
       obj.rotation.set(o.rx ?? 0, rot, o.rz ?? 0);
       room.add(obj);
+      clutter(obj, id);
       if (o.solid ?? (!o.y && p.size.y * k > 0.45)) {
         const turned = Math.abs(Math.sin(rot)) > 0.7;
         const w = (turned ? p.size.z : p.size.x) * k / 2 - 0.04, d = (turned ? p.size.x : p.size.z) * k / 2 - 0.04;
@@ -218,6 +261,8 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       note('n-nov', 4.15, 2.3, 0.82);
       note('n-zoya', 1.2, 4.72, 1.4, Math.PI);
       item('bowl', bowl(A, -2.6, 2.2), -2.6, 2.2);
+      loot('food', 'печенье «Юбилейное»', 'A', 4.0, 2.9, 0.82);
+      loot('water', 'графин с водой', 'B', -3.2, -2.5, 0.78);
       // Музыкальная комната.
       const piano = new THREE.Group();
       const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.15, 0.55), lambert({ color: 0x1c1410 }));
@@ -247,6 +292,9 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       [0x7a8a6a, 0x8a6a5a, 0x6a7a8a].forEach((c, i) => bowl(A, -1.6 - i * 0.45, 4.3, 0.02, c));
       put(A, 'wall_clock', -1.5, -0.37, 0, { y: 1.9 });
       note('z-book', -3.5, 1.6, 0.9);
+      loot('food', 'килька в томате', 'A', -3.3, 2.9, 0.9);
+      loot('water', 'бидон с водой', 'A', 3.6, 0.6, 0);
+      loot('food', 'банка варенья', 'B', -1.4, -4.25, 0.5);
       note('z-list', 3.98, 1.5, 1.25, -Q);
       note('z-gena', 3.98, 2.1, 0.95, -Q);
       put(B, 'vintage_day_bed', -4.25, -2.6, Q);
@@ -269,6 +317,8 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(A, 'wooden_crate_02', -4.2, 4.1, Q, { s: 0.7 });
       put(A, 'hanging_picture_frame_01', -4.72, 2.0, Q, { y: 1.5 });
       note('g-bills', -4.2, 4.1, 0.36);
+      loot('food', 'тушёнка', 'A', 3.9, 3.6, 0.98);
+      loot('water', 'канистра воды', 'B', -4.3, -2.2, 0);
       note('g-luda', 2.9, 3.3, 0.98);
       note('g-song', -4.1, 1.6, 0.5);
       // Мастерская: лодка занимает почти всю комнату.
@@ -311,6 +361,8 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       put(A, 'painted_wooden_bench', -2.4, -0.1, 0);
       put(A, 'hanging_picture_frame_01', -0.4, -0.38, 0, { y: 1.4 });
       note('t-spy', -4.15, 3.1, 0.8);
+      loot('food', 'сухарики', 'A', 3.3, 1.2, 0.02);
+      loot('water', 'банка компота', 'B', -4.0, -4.3, 1.2);
       note('t-mom', -2.4, 0.0, 0.5);
       note('t-marks', 1.42, -0.37, 1.3, 0);
       const cuts = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.9), new THREE.MeshBasicMaterial({ map: canvasTex(4, 36, (c) => { c.clearRect(0, 0, 4, 36); c.fillStyle = '#d8d0b8'; for (const y of [0, 22, 27, 32]) c.fillRect(0, y, 4, 1); }), transparent: true, alphaTest: 0.5 }));
@@ -361,6 +413,14 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
   yard('old_tyre', -2.2, 2.4, 0.3, false);
   yard('plastic_monobloc_chair_01', 1.2, 1.0, 2.2);
   yard('wooden_crate_02', -1.9, -2.4, 0.2, false);
+  const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 0.5, 8), lambert({ color: 0x6a4a30 }));
+  stump.position.set(0.4, FLOOR + 0.25, 2.7);
+  scene.add(stump);
+  boxes.push({ minX: 0.1, maxX: 0.7, minZ: 2.4, maxZ: 3.0 });
+  const axe = lootMesh('axe');
+  axe.position.set(0.4, FLOOR + 0.42, 2.7);
+  scene.add(axe);
+  spots.push({ id: 'loot:axe', kind: 'loot', room: 'A', at: { x: 0.4, z: 2.7 }, title: LOOT_NAME.axe, text: '', mesh: axe, loot: 'axe' });
 
   return {
     spots,
@@ -376,6 +436,7 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       spots.filter((v) => v.home === home && v.room === 'B' && v.mesh).forEach((v) => { v.mesh!.visible = true; });
     },
     hideItem(id) { const m = itemMeshes.get(id); if (m) m.visible = false; },
+    inside(p) { for (const h of HOMES) { const c = SITE[h.id]; if (Math.abs(p.x - c.x) < 5 && Math.abs(p.z - c.z) < 5) return h.id; } return null; },
     update(t) { staticTex.offset.set(Math.floor(t * 14) * 0.17, Math.floor(t * 14) * 0.29); },
   };
 }

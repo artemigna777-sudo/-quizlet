@@ -3,7 +3,7 @@ export const CFG = {
   title: 'СТЁРТЫЙ ГОРОД',
   saveKey: 'erased-town:save:v1',
   /** Город: кварталы BLOCKS×BLOCKS, шаг сетки и ширина улицы. */
-  blocks: 5,
+  blocks: 7,
   pitch: 36,
   street: 10,
   fog: 0x161824,
