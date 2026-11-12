@@ -24,7 +24,7 @@ export async function buildPlaces(scene: THREE.Scene, boxes: Box[], lootSites: r
   };
 
   // ───────── Магазин ─────────
-  const X0 = SHOP.x - 11, X1 = SHOP.x + 3, Z0 = -6, Z1 = 6, H = 3.4, F = 0.14;
+  const X0 = SHOP.x - 11, X1 = SHOP.x + 3, Z0 = -6, Z1 = 6, H = 3.4, F = 0.05;
   const wallMat = lambert({ map: canvasTex(32, 32, (g) => { g.fillStyle = '#e4dcc4'; g.fillRect(0, 0, 32, 32); g.fillStyle = '#7fa890'; g.fillRect(0, 18, 32, 14); g.fillStyle = 'rgba(0,0,0,.2)'; g.fillRect(0, 17, 32, 1); }, [6, 1]) });
   const wall = (x0: number, z0: number, x1: number, z1: number, y0 = 0, y1 = H, collide = true) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), wallMat);
@@ -87,10 +87,10 @@ export async function buildPlaces(scene: THREE.Scene, boxes: Box[], lootSites: r
   // ───────── Ящики на улицах ─────────
   lootSites.forEach((s, i) => {
     const c = crate.root.clone();
-    c.scale.setScalar(0.55); c.position.set(s.x, 0.14, s.z); c.rotation.y = r() * 3;
+    c.scale.setScalar(0.55); c.position.set(s.x, 0.05, s.z); c.rotation.y = r() * 3;
     scene.add(c);
     const k = r();
-    loot(`loot:w:${i}`, k < 0.42 ? 'food' : k < 0.8 ? 'water' : 'ammo', s.x, 0.14 + 0.27, s.z);
+    loot(`loot:w:${i}`, k < 0.42 ? 'food' : k < 0.8 ? 'water' : 'ammo', s.x, 0.05 + 0.27, s.z);
   });
 
   return {

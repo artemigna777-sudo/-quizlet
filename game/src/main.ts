@@ -52,6 +52,7 @@ async function boot() {
   world.scene.add(player.camera, dog.mesh, shooter.mesh);
   document.body.classList.toggle('touch', input.touch);
   player.camera.far = 130;
+  player.camera.near = 0.1;
 
   const START: Vec2 = { x: 18, z: 30 };
   let st = loadSave();
@@ -130,6 +131,8 @@ async function boot() {
   $('help').textContent = input.touch
     ? 'Слева — идти, справа — смотреть. Держи телефон горизонтально.'
     : 'WASD — идти, мышь — смотреть, Shift — бежать, F — фонарик, Q — ладонь, E — действие, ЛКМ или пробел — удар, X — сменить оружие, 1 — поесть, 2 — попить, Esc — пауза.';
+  const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || (navigator as unknown as { standalone?: boolean }).standalone === true;
+  if (input.touch && !standalone && /iPhone|iPad|iPod/.test(navigator.userAgent)) $('ios').style.display = 'block';
   $('reset').style.display = found.length || st.taken.length || st.loot.length ? 'block' : 'none';
   hud();
 
@@ -234,7 +237,7 @@ async function boot() {
       homes.hideItem(s.id);
       commit({ taken: [...st.taken, s.id], hold: s.id });
       sound.click();
-      toast(`${it.text}\nПёс нюхает её и тянет к двери.${s.id === 'bino' ? `\n${input.touch ? 'Кнопка 🔭' : 'Клавиша V'} — посмотреть в бинокль.` : ''}`, 7);
+      toast(`${it.text}\nТузик нюхает её и тянет к двери.${s.id === 'bino' ? `\n${input.touch ? 'Кнопка 🔭' : 'Клавиша V'} — посмотреть в бинокль.` : ''}`, 7);
       return;
     }
     if (!canReveal(st, s.home!)) {
@@ -319,8 +322,8 @@ async function boot() {
       // Стирание: ночью сильнее.
       const dDog = Math.hypot(dog.pos.x - player.pos.x, dog.pos.z - player.pos.z);
       pressure = stepErasure(pressure, dt * (night && dDog > CFG.safe ? 1.5 : 1), dDog);
-      if (pressure > 0.2 && !warned) { warned = true; toast('Не отходи от пса: город стирает тех, кого никто не помнит.', 6); }
-      if (pressure >= 1) die('ТЕБЯ СТЁРЛИ', 'Рядом не было никого, кто тебя помнит. Держись ближе к псу.');
+      if (pressure > 0.2 && !warned) { warned = true; toast('Не отходи от Тузика: город стирает тех, кого никто не помнит.', 6); }
+      if (pressure >= 1) die('ТЕБЯ СТЁРЛИ', 'Рядом не было никого, кто тебя помнит. Держись ближе к Тузику.');
       else if (st.vit.hp <= 0) die('ТЕБЯ НЕ СТАЛО', tick.damage ? 'Копии не устают. Ночью лучше переждать в доме — или найти, чем отбиваться.' : 'Без еды и воды долго не протянуть. Ищи припасы в домах и в магазине.');
 
       near = memories.find((m) => !m.found && Math.hypot(m.at.x - player.pos.x, m.at.z - player.pos.z) < 2.2) ?? null;
@@ -329,7 +332,7 @@ async function boot() {
       zoom = st.hold === 'bino' && input.zoom;
 
       if (playT > 4 && playT - dt <= 4) toast(input.touch ? 'Зажми ✋ — посмотри на ладонь.' : 'Зажми Q — посмотри на ладонь.', 4.5);
-      if (playT > 10 && playT - dt <= 10) toast('Пёс что-то чует. Иди за ним.', 5);
+      if (playT > 10 && playT - dt <= 10) toast('Тузик что-то чует. Иди за ним.', 5);
       saveT += dt;
       if (saveT > 5) { saveT = 0; commit({}); }
     } else {

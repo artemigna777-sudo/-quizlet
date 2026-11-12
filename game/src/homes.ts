@@ -25,7 +25,7 @@ export interface Homes {
   update(t: number): void;
 }
 
-const FLOOR = 0.14;
+const FLOOR = 0.05;
 const H = 2.9;
 const SITE: Record<HomeId, { x: number; z: number; s: 1 | -1; wall: string; tint: number; out: number }> = {
   nina: { x: 8, z: 8, s: 1, wall: '#b0a878', tint: 0x8a7f5a, out: 0xe6d28a },

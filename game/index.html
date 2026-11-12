@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0e0f13">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Стёртый город">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-180.png">
 <title>Стёртый город — игру делают зрители</title>
 <style>
 @font-face{font-family:Caveat;font-weight:700;src:url(./fonts/caveat.woff2) format('woff2')}
@@ -108,9 +114,10 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 
 <div class="screen on" id="menu">
   <h1>СТЁРТЫЙ<br><span>ГОРОД</span></h1>
-  <p>Ты не помнишь, кто ты. Город пуст. Рядом — только пёс со шрамом.<br>Днём ищи еду, воду и чужие вещи. Ночью — прячься или дерись.</p>
+  <p>Ты не помнишь, кто ты. Город пуст. Рядом — только пёс со шрамом. На ошейнике: «Тузик».<br>Днём ищи еду, воду и чужие вещи. Ночью — прячься или дерись.</p>
   <button class="go" id="start" disabled>ЗАГРУЗКА…</button>
   <button class="ghost" id="reset" style="display:none">Начать заново</button>
+  <small id="ios" style="display:none;color:#ffd9a0">Чтобы убрать панель Safari и играть на весь экран: «Поделиться» → «На экран „Домой“» и открой игру с иконки. Прогресс там начнётся заново.</small>
   <small id="help"></small>
   <small>Ранняя версия. Игру придумывают зрители, код пишет нейросеть.</small>
 </div>

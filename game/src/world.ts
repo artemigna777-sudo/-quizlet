@@ -60,15 +60,20 @@ export function buildWorld(): World {
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(span, span), lambert({ map: asphalt }));
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
-  const dashTex = canvasTex(8, 32, (g) => { g.clearRect(0, 0, 8, 32); g.fillStyle = '#d8d8c8'; g.fillRect(2, 2, 4, 14); }, [1, (half * 2) / 6]);
-  const dashMat = lambert({ map: dashTex, transparent: true, alphaTest: 0.5 });
-  for (const v of streetLines()) for (const along of ['z', 'x'] as const) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.35, half * 2), dashMat);
-    m.rotation.x = -Math.PI / 2;
-    if (along === 'z') m.position.set(v, 0.02, 0);
-    else { m.rotation.z = Math.PI / 2; m.position.set(0, 0.02, v); }
-    scene.add(m);
+  const dashV: number[] = [];
+  const quad = (x0: number, z0: number, x1: number, z1: number) => dashV.push(x0, 0, z0, x0, 0, z1, x1, 0, z1, x0, 0, z0, x1, 0, z1, x1, 0, z0);
+  const firstC = -((CFG.blocks - 1) / 2) * CFG.pitch;
+  for (const v of streetLines()) for (let b = 0; b < CFG.blocks; b++) for (let k = -2; k <= 2; k++) {
+    const c = firstC + b * CFG.pitch + k * 5.2;
+    quad(v - 0.16, c - 1.3, v + 0.16, c + 1.3);
+    quad(c - 1.3, v - 0.16, c + 1.3, v + 0.16);
   }
+  const dashGeo = new THREE.BufferGeometry();
+  dashGeo.setAttribute('position', new THREE.Float32BufferAttribute(dashV, 3));
+  dashGeo.computeVertexNormals();
+  const dashes = new THREE.Mesh(dashGeo, new THREE.MeshLambertMaterial({ color: 0xd8d8c8, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+  dashes.position.y = 0.045;
+  scene.add(dashes);
 
   // ───────── Текстуры домов ─────────
   /** Панель: два пролёта, окно и балкон. */
@@ -194,8 +199,8 @@ export function buildWorld(): World {
     const green = ring === 3;
     const kind = cx === YARD.x && cz === YARD.z ? 'yard' : cx === SHOP.x && cz === SHOP.z ? 'shop'
       : ring === 1 ? 'panel' : ring === 3 ? 'village' : pick(['five', 'five', 'shops', 'garages', 'park', 'school', 'panel'] as const);
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(inner, 0.14, inner), green || kind === 'park' ? grassMat : slabMat);
-    slab.position.set(cx, 0.07, cz);
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(inner, 0.05, inner), green || kind === 'park' ? grassMat : slabMat);
+    slab.position.set(cx, 0.025, cz);
     scene.add(slab);
     const flip = r() < 0.5;
     const P = (lx: number, lz: number): [number, number] => (flip ? [cx + lz, cz + lx] : [cx + lx, cz + lz]);
