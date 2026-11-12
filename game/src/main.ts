@@ -81,6 +81,22 @@ async function boot() {
   shooter.mesh.clear();
   shooter.mesh.add(shooterBody.root);
   for (const sx of [-0.035, 0.035]) { const eye = new THREE.Mesh(new THREE.SphereGeometry(0.014, 6, 5), new THREE.MeshBasicMaterial({ color: 0xff2a2a, fog: false })); eye.position.set(sx, 1.665, 0.125); shooter.mesh.add(eye); }
+  // Мурка: приходит к своей миске, когда комната Зои вернулась.
+  const murka = new THREE.Group();
+  {
+    const fur = new THREE.MeshLambertMaterial({ color: 0x8a8a92 }), dark = new THREE.MeshLambertMaterial({ color: 0x55555e });
+    const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, rx = 0, sc?: [number, number, number]) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.x = rx; if (sc) o.scale.set(...sc); o.castShadow = true; murka.add(o); return o; };
+    add(new THREE.CapsuleGeometry(0.075, 0.2, 3, 8), fur, 0, 0.14, 0, Math.PI / 2);
+    add(new THREE.SphereGeometry(0.07, 8, 7), fur, 0, 0.2, 0.17);
+    for (const s of [-1, 1]) { add(new THREE.ConeGeometry(0.025, 0.05, 4), dark, s * 0.04, 0.275, 0.16); add(new THREE.SphereGeometry(0.012, 5, 4), new THREE.MeshBasicMaterial({ color: 0xc8e060 }), s * 0.028, 0.21, 0.232); }
+    for (const [x, z] of [[-0.05, 0.1], [0.05, 0.1], [-0.05, -0.1], [0.05, -0.1]]) add(new THREE.CylinderGeometry(0.018, 0.016, 0.1, 5), dark, x, 0.05, z);
+    const tail = add(new THREE.CylinderGeometry(0.012, 0.02, 0.24, 5), dark, 0, 0.24, -0.2, -0.5);
+    murka.userData.tail = tail;
+  }
+  murka.position.set(-10.3, 0.05, 12.05);
+  murka.rotation.y = -0.6;
+  murka.visible = false;
+  world.scene.add(murka);
   const zoya = makePerson('zoya');
   zoya.play('idle');
   world.scene.add(zoya.root);
@@ -125,6 +141,8 @@ async function boot() {
   let heartT = 0;
   let wasNight = false;
   let goalText = '';
+  let photoSaid = false;
+  let murkaSaid = false;
 
   // Качество: «высокое» — чётче и с тенями, «обычное» — для слабых телефонов. Игра сама понижает его, если тормозит.
   const QKEY = 'erased-town:quality';
@@ -359,7 +377,7 @@ async function boot() {
     card(h.memory.title, h.memory.text, 'memory', `m_${home}`);
   };
   const useSpot = (s: Spot) => {
-    if (s.kind === 'note') { sound.click(); card(s.title, s.text, 'note', undefined, s.photo); return; }
+    if (s.kind === 'note') { sound.click(); const first = !!s.photo && !photoSaid; if (first) photoSaid = true; card(s.title, s.text, 'note', first ? 'h_photo' : undefined, s.photo); return; }
     if (s.kind === 'talk') { talkZoya(); return; }
     if (s.kind === 'bed') {
       // В доме, который вспомнили, ночью безопасно: можно дождаться утра.
@@ -392,6 +410,7 @@ async function boot() {
       else if (k === 'parts') commit({ loot, parts: st.parts + 1 });
       else { arms.give(k); if (k === 'gun') arms.ammo += 30; commit({ loot }); }
       sound.click();
+      if (k === 'axe') sound.say('h_axe');
       toast(k === 'axe' ? `Топор. ${input.touch ? 'Кнопка ⚔' : 'Левая кнопка мыши или пробел'} — ударить.`
         : k === 'gun' ? 'Автомат и 30 патронов. Патроны береги: копий по ночам много.'
           : k === 'ammo' ? 'Патроны: +15.' : k === 'parts' ? `Детали: ${st.parts}. Пригодятся на верстаке в мастерской.` : `В сумке: ${s.title}. ${input.touch ? 'Кнопки 🥫 и 💧' : 'Клавиши 1 и 2'} — поесть и попить.`, 5);
@@ -403,6 +422,7 @@ async function boot() {
       homes.hideItem(s.id);
       commit({ taken: [...st.taken, s.id], hold: s.id });
       sound.click();
+      sound.say(`h_${s.id}`);
       toast(`${it.text}\nТузик нюхает её и тянет к двери.${s.id === 'bino' ? `\n${input.touch ? 'Кнопка 🔭' : 'Клавиша V'} — посмотреть в бинокль.` : ''}`, 7);
       return;
     }
@@ -577,6 +597,11 @@ async function boot() {
     world.setTime(st.tod);
     world.update(t, cine.active ? cine.cam.position : player.camera.position);
     homes.update(t);
+    murka.visible = revealed(st, 'zoya');
+    if (murka.visible) {
+      (murka.userData.tail as THREE.Mesh).rotation.z = Math.sin(t * 2.2) * 0.5;
+      if (!murkaSaid && mode === 'play' && Math.hypot(player.pos.x - murka.position.x, player.pos.z - murka.position.z) < 3) { murkaSaid = true; sound.say('h_murka'); toast('Мурка ест из своей миски.', 4); }
+    }
     cine.update(dt);
     zoya.update(dt);
     if (shooter.mesh.visible) shooterBody.update(dt);
