@@ -24,6 +24,12 @@ export class Dog {
   private path: Vec2[] = [];
   private pathT = 0;
   private stuckT = 0;
+  private petT = 0;
+
+  get isPetting() { return this.petT > 0; }
+
+  /** Игрок гладит Тузика: он замирает рядом и радуется. */
+  pet() { this.petT = 2.4; this.path = []; this.barked = true; }
 
   constructor() {
     const fur = lambert({ color: 0x7a5232 }), belly = lambert({ color: 0xa8845a }), dark = lambert({ color: 0x3a2618 });
@@ -81,19 +87,22 @@ export class Dog {
    */
   update(dt: number, t: number, player: Vec2, playerFwd: Vec2, goal: Vec2 | null, scent: number, boxes: readonly Box[]) {
     this.barked = false;
+    this.petT = Math.max(0, this.petT - dt);
     const dPlayer = Math.hypot(player.x - this.pos.x, player.z - this.pos.z);
     const dGoal = goal ? Math.hypot(goal.x - this.pos.x, goal.z - this.pos.z) : Infinity;
     const smells = goal !== null && Math.hypot(goal.x - player.x, goal.z - player.z) < scent;
 
     let target: Vec2 | null = null;
     let speed: number = CFG.dogSpeed;
-    if (smells && goal) {
+    if (this.isPetting) this.state = 'follow';
+    else if (smells && goal) {
       if (dGoal < 1.6) this.state = 'point';
       else if (dPlayer > CFG.safe - 1.5) this.state = 'wait';
       else this.state = 'lead';
     } else this.state = 'follow';
 
-    if (this.state === 'lead' && goal) target = this.route(dt, goal);
+    if (this.isPetting) target = null;
+    else if (this.state === 'lead' && goal) target = this.route(dt, goal);
     else if (this.state === 'follow') {
       // Держится чуть сбоку и позади.
       const side = { x: -playerFwd.z, z: playerFwd.x };
@@ -133,8 +142,9 @@ export class Dog {
     const sw = moved > 0.001 ? Math.sin(this.gait) * 0.7 : 0;
     this.legs[0].rotation.x = sw; this.legs[3].rotation.x = sw;
     this.legs[1].rotation.x = -sw; this.legs[2].rotation.x = -sw;
-    this.tail.rotation.y = Math.sin(t * (this.state === 'follow' ? 9 : 16)) * 0.6;
-    this.head.rotation.x = this.barked ? -0.5 : this.head.rotation.x * 0.85 + (moved > 0.001 ? Math.sin(this.gait * 2) * 0.03 : 0);
+    this.tail.rotation.y = Math.sin(t * (this.isPetting ? 24 : this.state === 'follow' ? 9 : 16)) * (this.isPetting ? 0.9 : 0.6);
+    const headTarget = this.isPetting ? 0.42 : this.barked ? -0.5 : moved > 0.001 ? Math.sin(this.gait * 2) * 0.03 : 0;
+    this.head.rotation.x += (headTarget - this.head.rotation.x) * Math.min(1, dt * 10);
     this.mesh.position.set(this.pos.x, Math.abs(Math.sin(this.gait)) * 0.03, this.pos.z);
     this.mesh.rotation.y = this.heading;
   }

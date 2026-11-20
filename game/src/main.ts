@@ -9,6 +9,7 @@ import { buildHomes, type Spot } from './homes';
 import { Input } from './input';
 import { stepErasure } from './logic';
 import { animateMemories, buildMemories, type Memory } from './memories';
+import { drawNotebook } from './notebook';
 import { buildPlaces } from './places';
 import { loadPeople } from './people';
 import { photoCanvas } from './photos';
@@ -19,7 +20,7 @@ import { SURV, advanceClock, clockText, daylight, drink, eat, grayOf, hurt, isNi
 import { AREA, buildWorld, inArea } from './world';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-type Mode = 'menu' | 'play' | 'card' | 'erased' | 'pause' | 'peek' | 'cine';
+type Mode = 'menu' | 'play' | 'card' | 'erased' | 'pause' | 'peek' | 'cine' | 'map';
 interface Save extends YardState { loot: string[]; food: number; water: number; ammo: number; axe: boolean; gun: boolean; vit: Vitals; tod: number; parts: number; axeLvl: number; gunLvl: number; intro: boolean; nightSeen: boolean; free: boolean; met: boolean; zstage: number; nights: number }
 const FRESH: Save = { found: [], taken: [], hold: null, loot: [], food: 0, water: 0, ammo: 0, axe: false, gun: false, vit: { hp: 100, food: 80, water: 75 }, tod: SURV.startTime, parts: 0, axeLvl: 0, gunLvl: 0, intro: false, nightSeen: false, free: false, met: false, zstage: 0, nights: 0 };
 
@@ -144,6 +145,7 @@ async function boot() {
   let goalText = '';
   let photoSaid = false;
   let murkaSaid = false;
+  let currentGoal: Vec2 | null = null;
 
   // Качество: «высокое» — чётче и с тенями, «обычное» — для слабых телефонов. Игра сама понижает его, если тормозит.
   const QKEY = 'erased-town:quality';
@@ -206,12 +208,12 @@ async function boot() {
   const setMode = (m: Mode) => {
     mode = m;
     document.body.classList.toggle('cine', m === 'cine');
-    show('menu', m === 'menu'); show('card', m === 'card'); show('erased', m === 'erased'); show('pause', m === 'pause');
+    show('menu', m === 'menu'); show('card', m === 'card'); show('erased', m === 'erased'); show('pause', m === 'pause'); show('map', m === 'map');
     if (m === 'play') input.lock(); else if (m !== 'peek' && m !== 'cine') document.exitPointerLock?.();
   };
   $('help').textContent = input.touch
     ? 'Слева — идти, справа — смотреть. Держи телефон горизонтально.'
-    : 'WASD — идти, мышь — смотреть, Shift — бежать, F — фонарик, Q — ладонь, E — действие, ЛКМ или пробел — удар, X — сменить оружие, 1 — поесть, 2 — попить, Esc — пауза.';
+    : 'WASD — идти, мышь — смотреть, Shift — бежать, M — блокнот, F — фонарик, Q — ладонь, E — действие, ЛКМ или пробел — удар, X — сменить оружие, 1 — поесть, 2 — попить, Esc — пауза.';
   const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || (navigator as unknown as { standalone?: boolean }).standalone === true;
   if (input.touch && !standalone && /iPhone|iPad|iPod/.test(navigator.userAgent)) $('ios').style.display = 'block';
   $('reset').style.display = found.length || st.taken.length || st.loot.length ? 'block' : 'none';
@@ -243,6 +245,12 @@ async function boot() {
   };
   $('bLight').onclick = () => input.press('KeyF');
   $('bAct').onclick = () => input.press('KeyE');
+  const openMap = () => {
+    drawNotebook($<HTMLCanvasElement>('mapCanvas'), { player: player.pos, dog: dog.pos, goal: currentGoal, free: st.free });
+    setMode('map');
+  };
+  $('bMap').onclick = openMap;
+  $('mapOk').onclick = () => setMode('play');
   $('bSwap').onclick = () => input.press('KeyX');
   $('bEat').onclick = () => input.press('Digit1');
   $('bDrink').onclick = () => input.press('Digit2');
@@ -489,6 +497,7 @@ async function boot() {
       let goal: Vec2 | null = yardHome ? homes.door(yardHome) : null;
       if (goal && Math.hypot(goal.x - player.pos.x, goal.z - player.pos.z) < 7) goal = null;
       else if (!yardHome) goal = memories.filter((m) => !m.found).sort((a, b) => Math.hypot(a.at.x - player.pos.x, a.at.z - player.pos.z) - Math.hypot(b.at.x - player.pos.x, b.at.z - player.pos.z))[0]?.at ?? null;
+      currentGoal = goal;
       dog.update(dt, t, player.pos, fwd, goal, 90, world.boxes);
       if (dog.barked) sound.bark();
       if (night && !siege) { shooter.update(dt, player.pos, fwd, world.lamps, Math.max(1, st.nights)); if (shooter.appeared) sound.sting(); } else shooter.mesh.visible = false;
@@ -537,8 +546,13 @@ async function boot() {
       else if (st.vit.hp <= 0) die('ТЕБЯ НЕ СТАЛО', tick.damage ? 'Копии не устают. Ночью лучше переждать в доме — или найти, чем отбиваться.' : 'Без еды и воды долго не протянуть. Ищи припасы в домах и в магазине.');
 
       near = memories.find((m) => !m.found && Math.hypot(m.at.x - player.pos.x, m.at.z - player.pos.z) < 2.2) ?? null;
-      spot = near ? null : spotNear();
-      if (input.hit('KeyE')) { if (near) pick(near); else if (spot) useSpot(spot); }
+      const nearDog = Math.hypot(dog.pos.x - player.pos.x, dog.pos.z - player.pos.z) < 1.75;
+      spot = near || nearDog ? null : spotNear();
+      if (input.hit('KeyE')) {
+        if (near) pick(near);
+        else if (nearDog) { dog.pet(); sound.bark(); toast('Ты гладишь Тузика. Он на секунду забывает бояться города.', 3); }
+        else if (spot) useSpot(spot);
+      }
       zoom = st.hold === 'bino' && input.zoom;
 
       if (playT > 4 && playT - dt <= 4) toast(input.touch ? 'Зажми ✋ — посмотри на ладонь.' : 'Зажми Q — посмотри на ладонь.', 4.5);
@@ -556,6 +570,7 @@ async function boot() {
         if (peek.t <= 0) { const h = peek.home; peek = null; finishReveal(h); }
       }
     }
+    if (input.hit('KeyM')) { if (mode === 'play') openMap(); else if (mode === 'map') setMode('play'); }
     if (input.hit('Escape') && mode === 'play') setMode('pause');
 
     // Интерфейс.
@@ -571,11 +586,12 @@ async function boot() {
               : allFound() ? (arms.hasAxe ? 'Поговори с Зоей' : 'Возьми топор в пне во дворе') : 'Осмотри двор: Тузик что-то чует';
     if (goalNow !== goalText) { goalText = goalNow; $('goal').textContent = goalNow; }
     $('binoMask').style.opacity = zoom ? '1' : '0';
-    const label = near ? `взять: ${near.title.toLowerCase()}` : spot ? spotLabel(spot) : '';
+    const nearDog = mode === 'play' && Math.hypot(dog.pos.x - player.pos.x, dog.pos.z - player.pos.z) < 1.75;
+    const label = near ? `взять: ${near.title.toLowerCase()}` : nearDog ? 'погладить Тузика' : spot ? spotLabel(spot) : '';
     $('prompt').style.display = label ? 'block' : 'none';
     $('promptText').textContent = label ? (input.touch ? label : `E — ${label}`) : '';
     $('bAct').style.display = label && input.touch ? 'flex' : 'none';
-    $('bAct').textContent = near || spot?.kind === 'item' || spot?.kind === 'loot' ? 'ВЗЯТЬ' : spot?.kind === 'note' ? 'ЧИТАТЬ' : 'ДВЕРЬ';
+    $('bAct').textContent = nearDog ? 'ГЛАДИТЬ' : near || spot?.kind === 'item' || spot?.kind === 'loot' ? 'ВЗЯТЬ' : spot?.kind === 'note' ? 'ЧИТАТЬ' : 'ДВЕРЬ';
     if (flashT > 0) flashT = Math.max(0, flashT - dt * 1.2);
     $('flash').style.opacity = String(flashT);
     if (hitT > 0) hitT = Math.max(0, hitT - dt * 2);
@@ -620,6 +636,7 @@ async function boot() {
     get st() { return st; }, get spot() { return spot; },
     setTime(v: number) { st.tod = v; }, setVit(v: Partial<Vitals>) { st.vit = { ...st.vit, ...v }; },
     start: startGame, cine, playIntro, playNight, playEnding, talkZoya, zoya,
+    openMap,
     get siege() { return siege; }, setSiegeLeft(v: number) { if (siege) siege.left = v; },
     setQuality(h: boolean) { high = h; applyQuality(); },
   };

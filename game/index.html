@@ -41,6 +41,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 #bDrink{right:calc(env(safe-area-inset-right) + 86px);top:calc(env(safe-area-inset-top) + 64px)}
 #bBino{right:calc(env(safe-area-inset-right) + 240px);bottom:calc(env(safe-area-inset-bottom) + 18px)}
 #bAct{right:calc(env(safe-area-inset-right) + 104px);bottom:calc(env(safe-area-inset-bottom) + 96px);background:#ff7a2e;color:#111;font-family:Russo,sans-serif;font-size:14px;width:80px;height:80px;display:none}
+#bMap{left:calc(env(safe-area-inset-left) + 18px);top:calc(env(safe-area-inset-top) + 74px);font-size:25px}
 .touch:not(.armed) #bFire,.touch:not(.two) #bSwap,.touch:not(.bino) #bBino{display:none}
 .touch .pc{display:none}
 #bag{margin-top:6px;display:flex;gap:10px;align-items:center;font-size:14px;font-weight:700;text-shadow:0 1px 0 #000,0 0 6px #000;font-family:system-ui,sans-serif}
@@ -96,6 +97,9 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 #erased{background:#d9dde6;color:#111}
 #erased h1{color:#111}
 #erased p{color:#333}
+#map{background:rgba(5,6,8,.94)}
+#map h1{font-size:clamp(22px,6vh,36px)}
+#mapCanvas{width:min(92vw,820px);height:auto;max-height:66dvh;border-radius:10px;box-shadow:0 18px 60px #000;transform:rotate(-.4deg)}
 </style>
 </head>
 <body>
@@ -123,6 +127,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 <button class="btn" id="bDrink" aria-label="Попить">💧<sub id="bDrinkN">0</sub></button>
 <button class="btn" id="bBino" aria-label="Бинокль">🔭</button>
 <button class="btn" id="bAct">ВЗЯТЬ</button>
+<button class="btn" id="bMap" aria-label="Открыть блокнот">📓</button>
 <div id="cine"><i></i><i></i><h2 id="cineTitle"></h2><p id="cineSub"></p><button id="skip">Пропустить ›</button></div>
 <div id="rotate"><b>↻</b>Поверни телефон горизонтально</div>
 
@@ -138,6 +143,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 <div class="screen" id="card"><div class="paper"><small id="cardKind"></small><img id="cardImg" alt="" style="display:none"><h2 id="cardTitle"></h2><p id="cardText"></p></div><button class="go" id="cardOk">ДАЛЬШЕ</button></div>
 <div class="screen" id="erased"><h1 id="erasedTitle">ТЕБЯ СТЁРЛИ</h1><p id="erasedText"></p><button class="go" id="again">ЕЩЁ РАЗ</button></div>
 <div class="screen" id="pause"><h1>ПАУЗА</h1><button class="go" id="resume">ПРОДОЛЖИТЬ</button><button class="ghost" id="quality"></button></div>
+<div class="screen" id="map"><h1>БЛОКНОТ-КАРТА</h1><canvas id="mapCanvas"></canvas><button class="go" id="mapOk">ЗАКРЫТЬ</button></div>
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
