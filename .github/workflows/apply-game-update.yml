@@ -22,7 +22,7 @@ jobs:
           curl -fsSL 'https://tmpfiles.org/dl/1795207541.96bcf96fc2928a43/wMAibbcwZ3Wq/erased-city-map-and-pet.patch' -o update.patch
           echo '941a8d088d8827beaa41affc387530e22cdbca5b3fe378b02a292b72d6c28b47  update.patch' | sha256sum -c -
 
-            - name: Apply and publish
+      - name: Apply and publish
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
