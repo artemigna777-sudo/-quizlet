@@ -55,7 +55,6 @@ async function boot() {
   renderer.shadowMap.type = THREE.PCFShadowMap;
   const world = buildWorld();
   const player = new Player();
-  const hero = new HeroBody();
   const dog = new Dog();
   const shooter = new Shooter();
   const input = new Input(canvas, $('stick'));
@@ -65,7 +64,7 @@ async function boot() {
   const cine = new Cine({ root: $('cine'), sub: $('cineSub'), title: $('cineTitle') }, (id, onEnd) => sound.say(id, onEnd));
   let enemies!: Enemies;
   let siege: { left: number } | null = null;
-  world.scene.add(player.camera, hero.root, dog.mesh, shooter.mesh);
+  world.scene.add(player.camera, dog.mesh, shooter.mesh);
   document.body.classList.toggle('touch', input.touch);
   player.camera.far = 130;
   player.camera.near = 0.1;
@@ -80,13 +79,15 @@ async function boot() {
   if (spawn === ENTRANCE) { player.pos = { ...ENTRANCE }; player.yaw = 0; dog.place({ x: ENTRANCE.x, z: ENTRANCE.z - 2.7 }); }
   let found = [...st.found];
   const startBtn = $<HTMLButtonElement>('start');
-  const homes = await buildHomes(world.scene, world.boxes, ballistics, (k) => { startBtn.textContent = `ЗАГРУЗКА ${Math.round(k * 100)}%`; });
+  const [homes, makePerson] = await Promise.all([
+    buildHomes(world.scene, world.boxes, ballistics, (k) => { startBtn.textContent = `ЗАГРУЗКА ${Math.round(k * 100)}%`; }),
+    loadPeople(),
+  ]);
   const apartments = await buildApartments(world.scene, world.boxes, ballistics);
   apartments.setProgress(st.chapter2);
   const places = await buildPlaces(world.scene, world.boxes, world.lootSites, ballistics);
-  // Люди: копии Стрелка, сам Стрелок и тётя Зоя.
-  startBtn.textContent = 'ЗАГРУЗКА ЛЮДЕЙ…';
-  const makePerson = await loadPeople();
+  const hero = new HeroBody(makePerson('josh'));
+  world.scene.add(hero.root);
   enemies = new Enemies(world.scene, makePerson);
   const shooterBody = makePerson('echo');
   shooterBody.play('stand');
@@ -346,7 +347,7 @@ async function boot() {
   // Общий план показывает собеседников, крупный оставляет в кадре лицо Зои.
   const zShot = (voice: string, text: string, close = false): Shot => close
     ? { dur: 3, from: [ZP.x + 0.5, 1.58, ZP.z + 1.5], to: [ZP.x + 0.35, 1.58, ZP.z + 1.25], look: [ZP.x, 1.56, ZP.z], voice, text }
-    : { dur: 3, from: [ZP.x + 1.55, 1.56, ZP.z + 2.81], to: [ZP.x + 1.32, 1.55, ZP.z + 2.62], look: [ZP.x - 0.34, 1.02, ZP.z + 0.93], voice, text,
+    : { dur: 3, from: [ZP.x + 1.55, 1.56, ZP.z + 2.81], to: [ZP.x + 1.32, 1.55, ZP.z + 2.62], look: [ZP.x - 0.34, 0.88, ZP.z + 0.93], voice, text,
       hero: kitchenHero, on: () => { zoya.root.rotation.y = Math.atan2(kitchenHero.at.x - ZP.x, kitchenHero.at.z - ZP.z); } };
   const HINTS = [
     'Зоя: «Миска Мурки — у Нины Сергеевны, в первом доме».',
@@ -761,7 +762,7 @@ async function boot() {
       (murka.userData.tail as THREE.Mesh).rotation.z = Math.sin(t * 2.2) * 0.5;
       if (!murkaSaid && mode === 'play' && Math.hypot(player.pos.x - murka.position.x, player.pos.z - murka.position.z) < 3) { murkaSaid = true; sound.say('h_murka'); toast('Мурка ест из своей миски.', 4); }
     }
-    hero.update(player, t, cine.active, cine.heroMark, arms.cur);
+    hero.update(player, dt, cine.active, cine.heroMark, arms.cur);
     arms.show(!cine.active && (mode === 'play' || mode === 'peek') && !player.readingPalm);
     player.showFlash(!cine.active);
     zoya.update(dt);

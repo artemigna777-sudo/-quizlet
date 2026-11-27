@@ -1,12 +1,12 @@
 /**
- * Люди с анимацией (модели и движения Mixamo, см. CREDITS.md): копии Стрелка, сам Стрелок, тётя Зоя.
+ * Люди с анимацией (модели и движения Mixamo, см. CREDITS.md).
  * Исходные файлы превращены в лёгкие .glb (упрощённая сетка, уменьшенные текстуры) и лежат в public/people.
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
-export type Look = 'echo' | 'pale' | 'zoya';
+export type Look = 'echo' | 'pale' | 'zoya' | 'josh';
 
 export class Actor {
   readonly root = new THREE.Group();
@@ -39,7 +39,7 @@ export class Actor {
 export async function loadPeople(): Promise<(look: Look) => Actor> {
   const loader = new GLTFLoader();
   const url = (n: string) => new URL(`people/${n}.glb`, document.baseURI).href;
-  const [echo, zoya] = await Promise.all([loader.loadAsync(url('echo')), loader.loadAsync(url('zoya'))]);
+  const [echo, zoya, josh] = await Promise.all(['echo', 'zoya', 'josh'].map((name) => loader.loadAsync(url(name))));
   const lambert = (scene: THREE.Object3D, pale: boolean) => {
     const made = new Map<THREE.Material, THREE.Material>();
     scene.traverse((o) => {
@@ -60,10 +60,12 @@ export async function loadPeople(): Promise<(look: Look) => Actor> {
     });
     return scene;
   };
-  // Три набора: обычная копия, бледный «крикун» (та же модель, другой материал) и Зоя.
+  // Крикун использует ту же сетку, что и Стрелок, с другим материалом.
   const paleScene = lambert(clone(echo.scene), true);
-  lambert(echo.scene, false);
-  lambert(zoya.scene, false);
-  return (look) => look === 'zoya' ? new Actor(clone(zoya.scene), zoya.animations)
-    : new Actor(clone(look === 'pale' ? paleScene : echo.scene), echo.animations);
+  for (const { scene } of [echo, zoya, josh]) lambert(scene, false);
+  const people = { echo, zoya, josh, pale: { scene: paleScene, animations: echo.animations } };
+  return (look) => {
+    const { scene, animations } = people[look];
+    return new Actor(clone(scene), animations);
+  };
 }
