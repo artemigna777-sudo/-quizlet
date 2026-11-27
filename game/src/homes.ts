@@ -3,6 +3,7 @@
  * дальняя комната, которую город стёр. Она возвращается, когда принесёшь к её двери вещь хозяина.
  */
 import * as THREE from 'three';
+import type { Ballistics } from './ballistics';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Vec2 } from './config';
 import { canvasTex, lambert } from './gfx';
@@ -14,7 +15,7 @@ import { HOMES, ITEMS, type HomeId, type Room } from './story';
 
 export interface Spot {
   id: string; kind: 'note' | 'item' | 'gate' | 'loot' | 'bed' | 'bench' | 'talk'; home?: HomeId; room: Room; at: Vec2;
-  title: string; text: string; mesh: THREE.Object3D | null; loot?: LootKind; photo?: string;
+  title: string; text: string; mesh: THREE.Object3D | null; loot?: LootKind; photo?: string; elevation?: number;
 }
 export interface Homes {
   spots: Spot[];
@@ -29,6 +30,7 @@ export interface Homes {
 
 const FLOOR = 0.05;
 const H = 2.9;
+const hhFor = (num: number) => [6, 9, 6, 12][num - 1];
 const SITE: Record<HomeId, { x: number; z: number; s: 1 | -1; wall: string; tint: number; out: number }> = {
   nina: { x: 8, z: 8, s: 1, wall: '#b0a878', tint: 0x8a7f5a, out: 0xe6d28a },
   zoya: { x: -8, z: 8, s: 1, wall: '#8fae92', tint: 0x6f8a70, out: 0xa8d0a0 },
@@ -44,7 +46,7 @@ const MODELS = ['Shelf_01', 'wooden_table_02', 'painted_wooden_nightstand', 'pai
 type ModelId = (typeof MODELS)[number];
 const Q = Math.PI / 2;
 
-export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k: number) => void = () => {}): Promise<Homes> {
+export async function buildHomes(scene: THREE.Scene, boxes: Box[], ballistics: Ballistics, progress: (k: number) => void = () => {}): Promise<Homes> {
   const protos = new Map<ModelId, Proto>();
   let done = 0;
   await Promise.all(MODELS.map(async (id) => { protos.set(id, await loadModel(id)); progress(++done / MODELS.length); }));
@@ -145,13 +147,15 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     const inMat = paperMat(site.wall);
     const outMat = lambert({ map: outTex, color: site.out });
     const upperMat = lambert({ map: outTex, color: site.out });
+    const hh = hhFor(def.num);
     /** Стена: inside — номер грани коробки, которая смотрит в комнату (0 +x, 1 −x, 4 +z, 5 −z), −1 — перегородка. */
     const wall = (x0: number, z0: number, x1: number, z1: number, inside: number, y0 = 0, y1 = H, collide = true) => {
       const mats = [0, 1, 2, 3, 4, 5].map((i) => (inside < 0 || i === inside ? inMat : outMat));
       const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), mats);
       m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
       g.add(m);
-      if (collide) solid(x0, z0, x1, z1);
+      const b = collide ? solid(x0, z0, x1, z1) : null;
+      if (b) b.maxY = inside < 0 ? y1 : hh;
     };
     wall(-5, -5, 5, -4.75, 4);
     wall(-5, -4.75, -4.75, 4.75, 0);
@@ -166,7 +170,6 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
     floor.rotation.x = -Q; floor.position.y = FLOOR + 0.02;
     const ceil = new THREE.Mesh(new THREE.PlaneGeometry(9.5, 9.5), ceilMat);
     ceil.rotation.x = Q; ceil.position.y = H;
-    const hh = [6, 9, 6, 12][def.num - 1];
     const upper = new THREE.Mesh(new THREE.BoxGeometry(10, hh - H, 10), upperMat);
     upper.position.y = (hh + H) / 2 + 0.01;
     const roof = new THREE.Mesh(new THREE.ConeGeometry(7.2, def.num % 2 ? 2.6 : 1.4, 4), roofMat);
@@ -211,7 +214,13 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       const pos = side === 0 ? [u, y, 5.06] : side === 1 ? [u, y, -5.06] : side === 2 ? [-5.06, y, u] : [5.06, y, u];
       WM.compose(new THREE.Vector3(pos[0], pos[1], pos[2]), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), S1);
       const wm = WM.clone();
-      piece(frameGeo, trimMat, 0, 0, 0, wm); piece(glassGeo, rnd() < 0.3 ? holeMat : glassMat, 0, 0, 0.05, wm); piece(sillGeo, trimMat, 0, -0.82, 0.08, wm);
+      piece(frameGeo, trimMat, 0, 0, 0, wm); piece(sillGeo, trimMat, 0, -0.82, 0.08, wm);
+      const intact = rnd() >= 0.3;
+      if (intact) {
+        const pane = new THREE.Mesh(new THREE.PlaneGeometry(1.26, 1.46), glassMat);
+        pane.position.set(0, 0, 0.09).applyMatrix4(wm); pane.rotation.y = ry;
+        g.add(pane); ballistics.register(pane);
+      } else piece(glassGeo, holeMat, 0, 0, 0.05, wm);
       if (balcony) {
         piece(new THREE.BoxGeometry(2.2, 0.12, 1.0), plinthMat, 0, -0.95, 0.5, wm); piece(new THREE.BoxGeometry(2.2, 0.9, 0.06), railMat, 0, -0.45, 0.98, wm);
         piece(new THREE.BoxGeometry(0.06, 0.9, 1.0), railMat, -1.08, -0.45, 0.5, wm); piece(new THREE.BoxGeometry(0.06, 0.9, 1.0), railMat, 1.08, -0.45, 0.5, wm);
@@ -239,6 +248,7 @@ export async function buildHomes(scene: THREE.Scene, boxes: Box[], progress: (k:
       const k = rnd();
       const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.4), k < 0.4 ? windowMat : k < 0.8 ? brokenMat : boardedMat);
       m.position.set(x, 1.55, z); m.rotation.y = ry; room.add(m);
+      if (k < 0.4) ballistics.register(m);
       if (k < 0.4 || k >= 0.8) return;
       // Осколки на полу под разбитым окном.
       const nx = Math.sin(ry), nz = Math.cos(ry);

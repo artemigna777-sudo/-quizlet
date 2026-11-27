@@ -1,13 +1,15 @@
 /** Главный цикл: меню → игра → записка / воспоминание / стирание. Прогресс хранится на устройстве. */
 import * as THREE from 'three';
+import { buildApartments, ENTRANCE } from './apartments';
 import { Sound } from './audio';
+import { Ballistics } from './ballistics';
 import { Cine, type Shot } from './cine';
 import { Arms, Enemies, WEAPON } from './combat';
 import { CFG, type Vec2 } from './config';
 import { Dog } from './dog';
 import { buildHomes, type Spot } from './homes';
 import { Input } from './input';
-import { stepErasure } from './logic';
+import { clearWalk, stepErasure } from './logic';
 import { animateMemories, buildMemories, type Memory } from './memories';
 import { drawNotebook } from './notebook';
 import { buildPlaces } from './places';
@@ -17,12 +19,13 @@ import { Player } from './player';
 import { Shooter } from './shooter';
 import { HOMES, canReveal, canTake, homeOf, itemOf, memId, revealed, yardGoal, type YardState } from './story';
 import { SURV, advanceClock, clockText, daylight, drink, eat, grayOf, hurt, isNight, stepVitals, type Vitals } from './survival';
+import { VOICE_DUR } from './voicedur';
 import { AREA, buildWorld, inArea } from './world';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 type Mode = 'menu' | 'play' | 'card' | 'erased' | 'pause' | 'peek' | 'cine' | 'map';
-interface Save extends YardState { loot: string[]; food: number; water: number; ammo: number; axe: boolean; gun: boolean; vit: Vitals; tod: number; parts: number; axeLvl: number; gunLvl: number; intro: boolean; nightSeen: boolean; free: boolean; met: boolean; zstage: number; nights: number }
-const FRESH: Save = { found: [], taken: [], hold: null, loot: [], food: 0, water: 0, ammo: 0, axe: false, gun: false, vit: { hp: 100, food: 80, water: 75 }, tod: SURV.startTime, parts: 0, axeLvl: 0, gunLvl: 0, intro: false, nightSeen: false, free: false, met: false, zstage: 0, nights: 0 };
+interface Save extends YardState { loot: string[]; food: number; water: number; ammo: number; axe: boolean; gun: boolean; vit: Vitals; tod: number; parts: number; axeLvl: number; gunLvl: number; intro: boolean; nightSeen: boolean; free: boolean; met: boolean; zstage: number; nights: number; chapter2: number }
+const FRESH: Save = { found: [], taken: [], hold: null, loot: [], food: 0, water: 0, ammo: 0, axe: false, gun: false, vit: { hp: 100, food: 80, water: 75 }, tod: SURV.startTime, parts: 0, axeLvl: 0, gunLvl: 0, intro: false, nightSeen: false, free: false, met: false, zstage: 0, nights: 0, chapter2: 0 };
 
 function loadSave(): Save {
   const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -34,7 +37,7 @@ function loadSave(): Save {
       found: strs(v.found), taken, hold: typeof v.hold === 'string' && taken.includes(v.hold) ? v.hold : null, loot: strs(v.loot),
       food: num(v.food, 0, 99), water: num(v.water, 0, 99), ammo: num(v.ammo, 0), axe: v.axe === true, gun: v.gun === true,
       vit: { hp: Math.max(20, num(v.vit?.hp, 100, 100)), food: num(v.vit?.food, 80, 100), water: num(v.vit?.water, 75, 100) }, tod: num(v.tod, SURV.startTime, 0.9999),
-      parts: num(v.parts, 0, 99), axeLvl: num(v.axeLvl, 0, 1), gunLvl: num(v.gunLvl, 0, 1), intro: v.intro === true, nightSeen: v.nightSeen === true, free: v.free === true, met: v.met === true, zstage: num(v.zstage, 0, 4), nights: num(v.nights, 0, 99),
+      parts: num(v.parts, 0, 99), axeLvl: num(v.axeLvl, 0, 1), gunLvl: num(v.gunLvl, 0, 1), intro: v.intro === true, nightSeen: v.nightSeen === true, free: v.free === true, met: v.met === true, zstage: num(v.zstage, 0, 4), nights: num(v.nights, 0, 99), chapter2: Math.floor(num(v.chapter2, 0, 2)),
     };
   } catch { return structuredClone(FRESH); }
 }
@@ -54,8 +57,9 @@ async function boot() {
   const shooter = new Shooter();
   const input = new Input(canvas, $('stick'));
   const sound = new Sound();
+  const ballistics = new Ballistics(world.scene);
   const arms = new Arms(player.camera);
-  const cine = new Cine({ root: $('cine'), sub: $('cineSub'), title: $('cineTitle') }, (id) => sound.say(id));
+  const cine = new Cine({ root: $('cine'), sub: $('cineSub'), title: $('cineTitle') }, (id, onEnd) => sound.say(id, onEnd));
   let enemies!: Enemies;
   let siege: { left: number } | null = null;
   world.scene.add(player.camera, dog.mesh, shooter.mesh);
@@ -71,8 +75,9 @@ async function boot() {
   let st = loadSave();
   let found = [...st.found];
   const startBtn = $<HTMLButtonElement>('start');
-  const homes = await buildHomes(world.scene, world.boxes, (k) => { startBtn.textContent = `ЗАГРУЗКА ${Math.round(k * 100)}%`; });
-  const places = await buildPlaces(world.scene, world.boxes, world.lootSites);
+  const homes = await buildHomes(world.scene, world.boxes, ballistics, (k) => { startBtn.textContent = `ЗАГРУЗКА ${Math.round(k * 100)}%`; });
+  const apartments = await buildApartments(world.scene, world.boxes, ballistics);
+  const places = await buildPlaces(world.scene, world.boxes, world.lootSites, ballistics);
   // Люди: копии Стрелка, сам Стрелок и тётя Зоя.
   startBtn.textContent = 'ЗАГРУЗКА ЛЮДЕЙ…';
   const makePerson = await loadPeople();
@@ -103,7 +108,7 @@ async function boot() {
   zoya.play('idle');
   world.scene.add(zoya.root);
   world.boxes.push({ minX: -7.65, maxX: -7.15, minZ: 9.35, maxZ: 9.85 });
-  const spots: Spot[] = [...homes.spots, ...places.spots, { id: 'talk:zoya', kind: 'talk', room: 'A', at: { x: -7.4, z: 9.6 }, title: 'Тётя Зоя', text: '', mesh: null }];
+  const spots: Spot[] = [...homes.spots, ...places.spots, ...apartments.spots, { id: 'talk:zoya', kind: 'talk', room: 'A', at: { x: -7.4, z: 9.6 }, title: 'Тётя Зоя', text: '', mesh: null }];
   startBtn.textContent = 'ИГРАТЬ';
   startBtn.disabled = false;
   HOMES.filter((h) => revealed(st, h.id)).forEach((h) => homes.reveal(h.id));
@@ -221,6 +226,7 @@ async function boot() {
 
   const startGame = () => {
     sound.start();
+    sound.preloadVoices(Object.keys(VOICE_DUR));
     if (input.touch) { void document.documentElement.requestFullscreen?.().then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape')).catch(() => {}); }
     if (!st.intro && !noCine) { st.intro = true; input.lock(); playIntro(); return; }
     setMode('play');
@@ -236,6 +242,8 @@ async function boot() {
   };
   $('again').onclick = () => {
     player.pos = { ...checkpoint };
+    player.floor = 0;
+    dog.floor = 0;
     dog.place(checkpoint);
     pressure = 0;
     enemies.clear();
@@ -264,6 +272,7 @@ async function boot() {
   canvas.addEventListener('click', () => { if (mode === 'play') input.lock(); });
   document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && mode === 'play' && !input.touch) setMode('pause'); });
   document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'play') setMode('pause'); });
+  document.addEventListener('pointerdown', () => { if (mode !== 'menu') sound.start(); });
 
   // ───────── Сценки ─────────
   const run = (shots: Shot[], after: () => void) => { setMode('cine'); cine.play(shots, () => { setMode('play'); after(); }); };
@@ -335,7 +344,7 @@ async function boot() {
       { dur: 3.5, from: [d.x + 1.2, 0.5, d.z + 1.2], to: [d.x + 0.8, 0.6, d.z + 0.8], look: [d.x, 0.75, d.z], voice: 'h_end', text: 'Саша. Кто такой Саша?', on: () => sound.bark() },
       { dur: 4, from: [48, 2.2, 15], to: [54, 1.7, 17], look: [AREA.maxX, 2.5, 18], text: 'Стена помех дрожит.' },
       { dur: 4.5, from: [54, 1.7, 17], to: [56.5, 1.7, 18], look: [70, 2, 18], title: 'КОНЕЦ ПЕРВОЙ ГЛАВЫ', text: 'И город отступает.', on: () => { st.free = true; applyChapter(); sound.pickup(); } },
-    ], () => { zoyaHome(); player.pos = { x: ZDOOR.x, z: ZDOOR.z + 2 }; commit({ free: true }); hud(); toast('Город открыт. Вторая глава — в следующих сериях, а пока можно идти куда угодно.', 9); });
+    ], () => { zoyaHome(); player.pos = { x: ZDOOR.x, z: ZDOOR.z + 2 }; commit({ free: true }); toast('Глава 2. Тузик тянет к дому 12. Открой блокнот, чтобы свериться с картой.', 8); });
   };
   $('skip').onclick = () => cine.skip();
 
@@ -355,6 +364,8 @@ async function boot() {
     const f = player.forward();
     let best: Spot | null = null, bd = 1.9;
     for (const s of spots) {
+      if (Math.abs((s.elevation ?? 0) - player.floor) > 0.42) continue;
+      if (!st.free && s.id.startsWith('chapter2:')) continue;
       if (s.home && s.room === 'B' && !revealed(st, s.home)) continue;
       if (s.kind === 'item' && st.taken.includes(s.id)) continue;
       if (s.kind === 'loot' && st.loot.includes(s.id)) continue;
@@ -365,6 +376,13 @@ async function boot() {
       if (d < bd && (d < 0.6 || (dx * f.x + dz * f.z) / d > 0.35)) { bd = d; best = s; }
     }
     return best;
+  };
+  const canPetDog = () => {
+    const fwd = player.forward();
+    const dx = dog.pos.x - player.pos.x, dz = dog.pos.z - player.pos.z;
+    const d = Math.hypot(dx, dz);
+    return Math.abs(dog.floor - player.floor) < 0.65 && d < 2.75 && (d < 0.7 || dx * fwd.x + dz * fwd.z > d * 0.45)
+      && clearWalk(player.pos, dog.pos, 0, apartments.collision(player.pos, player.floor));
   };
   const VERB: Record<string, string> = { bowl: 'поставить миску у порога', key: 'открыть ключом', bino: 'посмотреть в глазок через бинокль', metro: 'завести метроном' };
   const spotLabel = (s: Spot): string => {
@@ -386,7 +404,14 @@ async function boot() {
     card(h.memory.title, h.memory.text, 'memory', `m_${home}`);
   };
   const useSpot = (s: Spot) => {
-    if (s.kind === 'note') { sound.click(); const first = !!s.photo && !photoSaid; if (first) photoSaid = true; card(s.title, s.text, 'note', first ? 'h_photo' : undefined, s.photo); return; }
+    if (s.kind === 'note') {
+      sound.click();
+      if (s.id === 'chapter2:ledger' && st.chapter2 < 2) commit({ chapter2: 2 });
+      const first = !!s.photo && !photoSaid;
+      if (first) photoSaid = true;
+      card(s.title, s.text, 'note', first ? 'h_photo' : undefined, s.photo);
+      return;
+    }
     if (s.kind === 'talk') { talkZoya(); return; }
     if (s.kind === 'bed') {
       // В доме, который вспомнили, ночью безопасно: можно дождаться утра.
@@ -480,9 +505,16 @@ async function boot() {
       }
       if (input.hit('KeyF')) { player.flashlightOn = !player.flashlightOn; sound.click(); }
       player.flashPower = 1 - daylight(st.tod) * 0.8;
-      player.update(dt, input, look, world.boxes, world.half, false);
+      player.update(dt, input, look, apartments.collision(player.pos, player.floor), world.half, false, apartments.height);
       const fwd = player.forward();
-      const indoors = homes.inside(player.pos) !== null || places.inside(player.pos);
+      const inApartments = apartments.inside(player.pos);
+      const indoors = inApartments || homes.inside(player.pos) !== null || places.inside(player.pos);
+      if (st.free && st.chapter2 === 0 && Math.hypot(player.pos.x - ENTRANCE.x, player.pos.z - ENTRANCE.z) < 3.6) {
+        commit({ chapter2: 1 });
+        if (!noCine) run([
+          { dur: 3.4, from: [ENTRANCE.x + 1.3, 1.55, ENTRANCE.z + 4], to: [ENTRANCE.x + 0.2, 1.55, ENTRANCE.z + 1], look: [ENTRANCE.x, 2.62, ENTRANCE.z - 0.9], title: 'ГЛАВА 2. ДОМ 12', text: 'В подъезде каждый почтовый ящик подписан от руки.' },
+        ], () => toast('Осмотри ящики в подъезде. На одном осталась записка.', 6));
+      }
 
       // Голод и жажда.
       if (input.hit('Digit1')) { if (st.food > 0) { st.food--; st.vit = eat(st.vit); sound.gulp(); hud(); } else toast('Еды нет. Ищи в домах, в магазине и в ящиках на улицах.', 4); }
@@ -495,10 +527,18 @@ async function boot() {
       // Пёс ведёт по запаху: сначала двор (к двери нужного дома), потом находки на улицах.
       const yardHome = !st.met || (allFound() && !st.free) ? 'zoya' : yardGoal(st);
       let goal: Vec2 | null = yardHome ? homes.door(yardHome) : null;
-      if (goal && Math.hypot(goal.x - player.pos.x, goal.z - player.pos.z) < 7) goal = null;
+      if (st.free && st.chapter2 < 2) goal = inApartments ? null : ENTRANCE;
+      else if (goal && homes.inside(player.pos) === yardHome) goal = null;
       else if (!yardHome) goal = memories.filter((m) => !m.found).sort((a, b) => Math.hypot(a.at.x - player.pos.x, a.at.z - player.pos.z) - Math.hypot(b.at.x - player.pos.x, b.at.z - player.pos.z))[0]?.at ?? null;
       currentGoal = goal;
-      dog.update(dt, t, player.pos, fwd, goal, 90, world.boxes);
+      if (inApartments && !apartments.onStairs(player.pos) && Math.abs(player.floor - dog.floor) > 2) {
+        dog.floor = player.floor;
+        const colliders = apartments.collision(player.pos, player.floor);
+        const ahead = { x: player.pos.x + fwd.x, z: player.pos.z + fwd.z };
+        dog.place(clearWalk(player.pos, ahead, CFG.dogRadius, colliders) ? ahead : player.pos, colliders);
+      }
+      dog.update(dt, t, player.pos, fwd, inApartments ? null : goal, 90, apartments.collision(dog.pos, dog.floor));
+      dog.floor = apartments.height(dog.pos, dog.floor);
       if (dog.barked) sound.bark();
       if (night && !siege) { shooter.update(dt, player.pos, fwd, world.lamps, Math.max(1, st.nights)); if (shooter.appeared) sound.sting(); } else shooter.mesh.visible = false;
       // Зоя поворачивается к тому, кто вошёл.
@@ -509,12 +549,23 @@ async function boot() {
       // Оружие.
       if (input.hit('KeyX')) { arms.swap(); sound.click(); hud(); }
       const ev = arms.update(dt, input.fire);
-      if (ev === 'swing') { sound.swing(); if (enemies.hit(player.pos, fwd, WEAPON.axeRange, 0.5, WEAPON.axeDmg * (st.axeLvl ? 1.5 : 1), world.boxes)) sound.thud(); }
-      else if (ev === 'shot') { sound.shot(); if (enemies.hit(player.pos, fwd, WEAPON.gunRange, 0.994, WEAPON.gunDmg * (st.gunLvl ? 1.5 : 1), world.boxes)) sound.thud(); hud(); }
+      if (ev === 'swing') { sound.swing(); if (player.floor < 0.5 && enemies.hit(player.pos, fwd, WEAPON.axeRange, 0.5, WEAPON.axeDmg * (st.axeLvl ? 1.5 : 1), world.boxes)) sound.thud(); }
+      else if (ev === 'shot') {
+        sound.shot();
+        const dir = player.camera.getWorldDirection(new THREE.Vector3());
+        const ray = new THREE.Ray(player.camera.position, dir);
+        const wall = ballistics.trace(ray, WEAPON.gunRange, [...world.boxes, ...places.bulletBoxes, ...apartments.bulletBoxes]);
+        const hit = enemies.shoot(ray, wall.distance, WEAPON.gunDmg * (st.gunLvl ? 1.5 : 1));
+        const end = ray.at(hit ?? wall.distance, new THREE.Vector3());
+        ballistics.fire(arms.muzzle(), end);
+        if (hit !== null) sound.thud();
+        else if (wall.pane) { ballistics.damage(wall.pane, end, dir); sound.glass(); }
+        hud();
+      }
       else if (ev === 'empty') { sound.dry(); if (arms.hasAxe) { arms.cur = 'axe'; hud(); } toast('Патроны кончились.', 2.5); }
 
       // Ночные копии.
-      const tick = enemies.update(dt, { t, player: player.pos, fwd, running: input.run && player.moving, flash: player.flashlightOn, night, indoors, dog: dog.pos, boxes: world.boxes, nooks: world.nooks, area: st.free ? null : AREA, siege: !!siege });
+      const tick = player.floor > 0.5 ? { damage: 0, screamed: false, near: false, died: [] } : enemies.update(dt, { t, player: player.pos, fwd, running: input.run && player.moving, flash: player.flashlightOn, night, indoors, dog: dog.pos, boxes: world.boxes, nooks: world.nooks, area: st.free ? null : AREA, siege: !!siege });
       if (tick.damage) { st.vit = hurt(st.vit, tick.damage); hitT = 1; sound.pain(); }
       if (tick.screamed) sound.scream();
       if (night && !wasNight) st.nights++;
@@ -533,7 +584,7 @@ async function boot() {
           spots.push(s);
         }
       }
-      if (night && !st.nightSeen && !noCine) { st.nightSeen = true; playNight(); }
+      if (night && !st.nightSeen && !noCine && !cine.active) { st.nightSeen = true; playNight(); }
       else if (night && !nightTold) { nightTold = true; toast('Ночь. Город лепит копии из тех, кого стёр.\nОни идут на звук шагов. В дома не заходят.', 8); }
       if (!night) nightTold = false;
 
@@ -545,13 +596,12 @@ async function boot() {
       if (pressure >= 1) die('ТЕБЯ СТЁРЛИ', 'Рядом не было никого, кто тебя помнит. Держись ближе к Тузику.');
       else if (st.vit.hp <= 0) die('ТЕБЯ НЕ СТАЛО', tick.damage ? 'Копии не устают. Ночью лучше переждать в доме — или найти, чем отбиваться.' : 'Без еды и воды долго не протянуть. Ищи припасы в домах и в магазине.');
 
-      near = memories.find((m) => !m.found && Math.hypot(m.at.x - player.pos.x, m.at.z - player.pos.z) < 2.2) ?? null;
-      const nearDog = Math.hypot(dog.pos.x - player.pos.x, dog.pos.z - player.pos.z) < 1.75;
-      spot = near || nearDog ? null : spotNear();
-      if (input.hit('KeyE')) {
+      near = player.floor > 0.5 ? null : memories.find((m) => !m.found && Math.hypot(m.at.x - player.pos.x, m.at.z - player.pos.z) < 2.2) ?? null;
+      spot = near ? null : spotNear();
+      if (input.hit('KeyE') && !cine.active) {
         if (near) pick(near);
-        else if (nearDog) { dog.pet(); sound.bark(); toast('Ты гладишь Тузика. Он на секунду забывает бояться города.', 3); }
         else if (spot) useSpot(spot);
+        else if (canPetDog()) { dog.pet(); sound.bark(); toast('Ты гладишь Тузика. Он на секунду забывает бояться города.', 3); }
       }
       zoom = st.hold === 'bino' && input.zoom;
 
@@ -578,7 +628,7 @@ async function boot() {
     if (Math.abs(player.camera.fov - fov) > 0.1) { player.camera.fov += (fov - player.camera.fov) * Math.min(1, dt * 14); player.camera.updateProjectionMatrix(); }
     // Цель — одной строкой сверху.
     const holdIt = st.hold ? itemOf(st.hold) : null, nextHome = yardGoal(st);
-    const goalNow = st.free ? 'Город открыт. Вторая глава — скоро'
+    const goalNow = st.free ? (st.chapter2 === 2 ? 'Дом 12 осмотрен. Дворы открыты' : apartments.inside(player.pos) ? 'Дом 12 · осмотри подъезд и квартиру 6 на третьем этаже' : 'Глава 2 · найди дом 12 по блокноту')
       : siege ? 'Продержись до рассвета'
         : !st.met ? 'Иди за Тузиком: во втором доме кто-то есть'
           : holdIt ? `Верни вещь хозяину: ${holdIt.name} → дом ${homeOf(holdIt.owner).num}`
@@ -586,8 +636,8 @@ async function boot() {
               : allFound() ? (arms.hasAxe ? 'Поговори с Зоей' : 'Возьми топор в пне во дворе') : 'Осмотри двор: Тузик что-то чует';
     if (goalNow !== goalText) { goalText = goalNow; $('goal').textContent = goalNow; }
     $('binoMask').style.opacity = zoom ? '1' : '0';
-    const nearDog = mode === 'play' && Math.hypot(dog.pos.x - player.pos.x, dog.pos.z - player.pos.z) < 1.75;
-    const label = near ? `взять: ${near.title.toLowerCase()}` : nearDog ? 'погладить Тузика' : spot ? spotLabel(spot) : '';
+    const nearDog = mode === 'play' && !near && !spot && canPetDog();
+    const label = mode !== 'play' ? '' : near ? `взять: ${near.title.toLowerCase()}` : spot ? spotLabel(spot) : nearDog ? 'погладить Тузика' : '';
     $('prompt').style.display = label ? 'block' : 'none';
     $('promptText').textContent = label ? (input.touch ? label : `E — ${label}`) : '';
     $('bAct').style.display = label && input.touch ? 'flex' : 'none';
@@ -614,12 +664,13 @@ async function boot() {
     world.setTime(st.tod);
     world.update(t, cine.active ? cine.cam.position : player.camera.position);
     homes.update(t);
+    ballistics.update(dt);
     murka.visible = revealed(st, 'zoya');
     if (murka.visible) {
       (murka.userData.tail as THREE.Mesh).rotation.z = Math.sin(t * 2.2) * 0.5;
       if (!murkaSaid && mode === 'play' && Math.hypot(player.pos.x - murka.position.x, player.pos.z - murka.position.z) < 3) { murkaSaid = true; sound.say('h_murka'); toast('Мурка ест из своей миски.', 4); }
     }
-    cine.update(dt);
+    cine.update(Math.min(0.25, raw));
     zoya.update(dt);
     if (shooter.mesh.visible) shooterBody.update(dt);
     renderer.render(world.scene, cine.active ? cine.cam : player.camera);
@@ -631,7 +682,7 @@ async function boot() {
 
   // Для проверок и отладки.
   (window as unknown as Record<string, unknown>).__game = {
-    player, dog, world, shooter, homes, enemies, arms,
+    player, dog, world, shooter, homes, enemies, arms, apartments, ballistics,
     get mode() { return mode; }, get pressure() { return pressure; }, get found() { return found; },
     get st() { return st; }, get spot() { return spot; },
     setTime(v: number) { st.tod = v; }, setVit(v: Partial<Vitals>) { st.vit = { ...st.vit, ...v }; },

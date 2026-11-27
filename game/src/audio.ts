@@ -9,7 +9,7 @@ export class Sound {
 
   /** Запускается по первому касанию: так требуют браузеры. */
   start() {
-    if (this.ctx) { void this.ctx.resume(); return; }
+    if (this.ctx) { if (this.ctx.state !== 'running') void this.ctx.resume().catch(() => {}); return; }
     const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AC) return;
     const ctx = (this.ctx = new AC());
@@ -69,15 +69,46 @@ export class Sound {
     o.stop(ctx.currentTime + dur + 0.02);
   }
   // ───────── Голоса ─────────
-  private voice: HTMLAudioElement | null = null;
-  /** Произнести реплику (public/voice/<id>.mp3); null — замолчать. */
-  say(id: string | null) {
-    if (this.voice) { this.voice.pause(); this.voice = null; }
-    if (!id || !this.enabled) return;
-    const a = new Audio(new URL(`voice/${id}.mp3`, document.baseURI).href);
-    a.volume = 1;
-    void a.play().catch(() => { /* звук ещё не разрешён */ });
-    this.voice = a;
+  private voice: AudioBufferSourceNode | null = null;
+  private voiceRequest = 0;
+  private clips = new Map<string, Promise<AudioBuffer>>();
+
+  preloadVoices(ids: readonly string[]) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    for (const id of ids) void this.clip(ctx, id).catch(() => {});
+  }
+
+  private clip(ctx: AudioContext, id: string): Promise<AudioBuffer> {
+    const saved = this.clips.get(id);
+    if (saved) return saved;
+    const clip = fetch(new URL(`voice/${id}.mp3`, document.baseURI), { signal: AbortSignal.timeout(9000) })
+      .then((response) => { if (!response.ok) throw new Error(`Voice ${id}: ${response.status}`); return response.arrayBuffer(); })
+      .then((data) => ctx.decodeAudioData(data))
+      .catch((error) => { this.clips.delete(id); throw error; });
+    this.clips.set(id, clip);
+    return clip;
+  }
+
+  /** Один аудиоконтекст открывается касанием; сцена узнаёт о фактическом конце реплики. */
+  say(id: string | null, onEnd?: () => void) {
+    const request = ++this.voiceRequest;
+    if (this.voice) { this.voice.onended = null; this.voice.stop(); this.voice.disconnect(); this.voice = null; }
+    const ctx = this.ctx;
+    if (!id || !ctx || !this.enabled) { onEnd?.(); return; }
+    void this.clip(ctx, id).then((buffer) => {
+      if (request !== this.voiceRequest) return;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(this.master);
+      source.onended = () => {
+        source.disconnect();
+        if (this.voice === source) this.voice = null;
+        onEnd?.();
+      };
+      source.start();
+      this.voice = source;
+    }).catch(() => { if (request === this.voiceRequest) onEnd?.(); });
   }
   step() { this.tone(90, 45, 0.09, 0.22); }
   bark() { this.tone(520, 260, 0.13, 0.28, 'sawtooth'); setTimeout(() => this.tone(480, 230, 0.13, 0.24, 'sawtooth'), 190); }
@@ -86,6 +117,7 @@ export class Sound {
   click() { this.tone(1800, 900, 0.04, 0.12, 'square'); }
   swing() { this.tone(300, 120, 0.16, 0.12, 'triangle'); }
   shot() { this.tone(180, 40, 0.12, 0.5, 'square', this.master); this.tone(1200, 200, 0.05, 0.2, 'sawtooth', this.master); }
+  glass() { for (const f of [2370, 3260, 4310]) this.tone(f, f * 0.58, 0.19, 0.045, 'triangle', this.master); }
   dry() { this.tone(900, 700, 0.03, 0.1, 'square'); }
   thud() { this.tone(140, 50, 0.14, 0.4, 'square'); }
   pain() { this.tone(110, 60, 0.3, 0.35, 'sawtooth', this.master); }

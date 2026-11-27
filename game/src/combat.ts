@@ -156,6 +156,25 @@ export class Enemies {
     best.pos = resolveCircle({ x: best.pos.x + (best.pos.x - player.x) * k, z: best.pos.z + (best.pos.z - player.z) * k }, 0.4, boxes);
     return true;
   }
+
+  shoot(ray: THREE.Ray, range: number, damage: number): number | null {
+    let best: Enemy | null = null, distance = range;
+    const target = new THREE.Box3(), point = new THREE.Vector3();
+    for (const e of this.list) {
+      if (e.dead || e.dying || e.hp <= 0) continue;
+      target.min.set(e.pos.x - 0.34, 0.08, e.pos.z - 0.34);
+      target.max.set(e.pos.x + 0.34, 1.76, e.pos.z + 0.34);
+      if (!ray.intersectBox(target, point)) continue;
+      const d = ray.origin.distanceTo(point);
+      if (d < distance) { best = e; distance = d; }
+    }
+    if (!best) return null;
+    best.hp -= damage;
+    best.aware = true;
+    best.stun = Math.max(best.stun, 0.35);
+    if (best.kind === 'screamer' && best.rush <= 0) best.rush = 4.5;
+    return distance;
+  }
 }
 const blockedFar = (a: Vec2, b: Vec2, boxes: readonly Box[], d: number) => d > 13 && blocked(a, b, boxes);
 
@@ -178,6 +197,7 @@ export class Arms {
     this.flash.position.set(0, 0.02, -0.52);
     camera.add(this.axe, this.gun);
   }
+  muzzle() { return this.flash.getWorldPosition(new THREE.Vector3()); }
   give(w: 'axe' | 'gun') { if (w === 'axe') this.hasAxe = true; else this.hasGun = true; this.cur = w; }
   swap() {
     const have: WeaponId[] = [...(this.hasAxe ? ['axe' as const] : []), ...(this.hasGun ? ['gun' as const] : [])];

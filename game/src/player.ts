@@ -10,6 +10,7 @@ export class Player {
   pos: Vec2 = { x: 18, z: 30 };
   yaw = 0; // 0 — смотрит в −Z
   pitch = 0;
+  floor = 0;
   flashlightOn = true;
   /** Днём фонарик почти не нужен и не должен слепить. */
   flashPower = 1;
@@ -54,7 +55,7 @@ export class Player {
   /** Направление взгляда по земле. */
   forward(): Vec2 { return { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) }; }
 
-  update(dt: number, input: Input, look: { x: number; y: number }, boxes: readonly Box[], half: number, frozen: boolean) {
+  update(dt: number, input: Input, look: { x: number; y: number }, boxes: readonly Box[], half: number, frozen: boolean, ground?: (p: Vec2, old: number) => number) {
     this.yaw -= look.x * 0.0023;
     this.pitch = Math.max(-1.3, Math.min(1.3, this.pitch - look.y * 0.0023));
     const f = this.forward();
@@ -67,6 +68,7 @@ export class Player {
     const next = resolveCircle({ x: Math.max(-lim, Math.min(lim, before.x + vx * dt)), z: Math.max(-lim, Math.min(lim, before.z + vz * dt)) }, CFG.radius, boxes);
     const moved = Math.hypot(next.x - before.x, next.z - before.z);
     this.pos = next;
+    if (ground) this.floor = ground(next, this.floor);
     this.moving = moved > 0.002;
     this.stride += moved;
     this.bob += ((this.moving ? Math.sin(this.stride * 3.4) * 0.045 : 0) - this.bob) * Math.min(1, dt * 12);
@@ -77,7 +79,7 @@ export class Player {
     this.hand.position.set(0.02, -0.75 + 0.63 * this.handK, -0.55);
     this.hand.rotation.set(-1.0 + 0.65 * this.handK, 0, 0.15);
 
-    this.camera.position.set(this.pos.x, CFG.eye + this.bob, this.pos.z);
+    this.camera.position.set(this.pos.x, this.floor + CFG.eye + this.bob, this.pos.z);
     this.camera.rotation.set(this.pitch - 0.25 * this.handK, this.yaw, 0);
     this.flash.intensity = this.flashlightOn ? 34 * this.flashPower : 0;
   }

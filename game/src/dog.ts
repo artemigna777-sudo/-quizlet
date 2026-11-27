@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { CFG, type Vec2 } from './config';
 import { lambert } from './gfx';
-import { resolveCircle, streetPath, type Box } from './logic';
+import { clearWalk, resolveCircle, walkPath, type Box } from './logic';
 
 export type DogState = 'follow' | 'lead' | 'wait' | 'point';
 
@@ -23,8 +23,11 @@ export class Dog {
   private barkT = 2;
   private path: Vec2[] = [];
   private pathT = 0;
+  private routeGoal: Vec2 | null = null;
   private stuckT = 0;
   private petT = 0;
+  private flank = 1;
+  floor = 0;
 
   get isPetting() { return this.petT > 0; }
 
@@ -95,20 +98,23 @@ export class Dog {
     let target: Vec2 | null = null;
     let speed: number = CFG.dogSpeed;
     if (this.isPetting) this.state = 'follow';
-    else if (smells && goal) {
+    else if (smells && goal && dPlayer < CFG.safe + 1) {
       if (dGoal < 1.6) this.state = 'point';
       else if (dPlayer > CFG.safe - 1.5) this.state = 'wait';
       else this.state = 'lead';
     } else this.state = 'follow';
 
     if (this.isPetting) target = null;
-    else if (this.state === 'lead' && goal) target = this.route(dt, goal);
+    else if (this.state === 'lead' && goal) target = this.route(dt, goal, boxes);
     else if (this.state === 'follow') {
-      // Держится чуть сбоку и позади.
       const side = { x: -playerFwd.z, z: playerFwd.x };
-      const want = { x: player.x - playerFwd.x * 1.3 + side.x * 1.1, z: player.z - playerFwd.z * 1.3 + side.z * 1.1 };
+      const mark = (ahead: number, lateral: number) => ({ x: player.x + playerFwd.x * ahead + side.x * lateral, z: player.z + playerFwd.z * ahead + side.z * lateral });
+      const candidates = [mark(2.1, this.flank * 1.2), mark(2.1, -this.flank * 1.2), mark(1.2, 0), player];
+      const i = candidates.findIndex((p) => clearWalk(player, p, CFG.dogRadius + 0.04, boxes));
+      if (i === 1) this.flank *= -1;
+      const want = candidates[i] ?? player;
       const d = Math.hypot(want.x - this.pos.x, want.z - this.pos.z);
-      if (d > 0.7) { target = dPlayer > 7 ? this.route(dt, player) : want; speed = Math.min(CFG.dogSpeed * (dPlayer > 5 ? 1.35 : 1), d * 2.6); }
+      if (d > 0.48) { target = this.route(dt, want, boxes); speed = Math.min(CFG.dogSpeed * (dPlayer > 4 ? 1.45 : 1.12), d * 3.2); }
     }
 
     let moved = 0;
@@ -126,10 +132,11 @@ export class Dog {
       this.turn(Math.atan2(look.x - this.pos.x, look.z - this.pos.z), dt);
     }
 
-    // Застрял или далеко отстал — догоняет рывком из-за спины игрока.
-    this.stuckT = target && moved < 0.01 ? this.stuckT + dt : 0;
-    if ((this.stuckT > 1.2 || dPlayer > 30) && this.state === 'follow') {
-      this.pos = resolveCircle({ x: player.x - playerFwd.x * 2.5, z: player.z - playerFwd.z * 2.5 }, CFG.dogRadius, boxes);
+    // При упоре в новый коллайдер пересчитываем маршрут; после большого отрыва возвращаем пса рядом.
+    this.stuckT = target && moved < Math.min(0.01, speed * dt * 0.2) ? this.stuckT + dt : 0;
+    if (this.stuckT > 0.3) { this.pathT = 0; this.stuckT = 0; }
+    if (this.state === 'follow' && dPlayer > 28) {
+      this.place(player, boxes);
       this.stuckT = 0;
     }
 
@@ -145,7 +152,7 @@ export class Dog {
     this.tail.rotation.y = Math.sin(t * (this.isPetting ? 24 : this.state === 'follow' ? 9 : 16)) * (this.isPetting ? 0.9 : 0.6);
     const headTarget = this.isPetting ? 0.42 : this.barked ? -0.5 : moved > 0.001 ? Math.sin(this.gait * 2) * 0.03 : 0;
     this.head.rotation.x += (headTarget - this.head.rotation.x) * Math.min(1, dt * 10);
-    this.mesh.position.set(this.pos.x, Math.abs(Math.sin(this.gait)) * 0.03, this.pos.z);
+    this.mesh.position.set(this.pos.x, this.floor + (moved > 0.001 ? Math.abs(Math.sin(this.gait)) * 0.03 : 0), this.pos.z);
     this.mesh.rotation.y = this.heading;
   }
 
@@ -157,13 +164,21 @@ export class Dog {
   }
 
   /** Следующая точка пути по улицам к цели. */
-  private route(dt: number, goal: Vec2): Vec2 {
+  private route(dt: number, goal: Vec2, boxes: readonly Box[]): Vec2 | null {
+    if (clearWalk(this.pos, goal, CFG.dogRadius + 0.04, boxes)) { this.path = []; this.routeGoal = null; return goal; }
     this.pathT -= dt;
-    if (this.pathT <= 0 || !this.path.length) { this.path = streetPath(this.pos, goal); this.pathT = 0.7; }
-    while (this.path.length > 1 && Math.hypot(this.path[0].x - this.pos.x, this.path[0].z - this.pos.z) < 1.2) this.path.shift();
-    return this.path[0] ?? goal;
+    if (this.pathT <= 0 || !this.routeGoal || Math.hypot(goal.x - this.routeGoal.x, goal.z - this.routeGoal.z) > 2.5) {
+      this.path = walkPath(this.pos, goal, CFG.dogRadius + 0.04, boxes);
+      this.routeGoal = goal;
+      this.pathT = 0.9;
+    }
+    while (this.path.length && Math.hypot(this.path[0].x - this.pos.x, this.path[0].z - this.pos.z) < 0.025) this.path.shift();
+    return this.path[0] ?? null;
   }
 
   /** Поставить рядом с точкой (после возрождения). */
-  place(p: Vec2) { this.pos = { x: p.x + 1.2, z: p.z + 1.0 }; this.path = []; }
+  place(p: Vec2, boxes?: readonly Box[]) {
+    this.pos = boxes ? resolveCircle(p, CFG.dogRadius + 0.04, boxes) : { x: p.x + 1.2, z: p.z + 1.0 };
+    this.path = []; this.routeGoal = null;
+  }
 }

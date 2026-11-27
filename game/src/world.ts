@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { APARTMENTS } from './apartments';
 import { CFG, type Vec2 } from './config';
 import { canvasTex, lambert } from './gfx';
 import { rng, streetLines, type Box } from './logic';
@@ -62,7 +63,7 @@ export function buildWorld(): World {
   const nooks: Vec2[] = [];
   const houses: Array<{ box: Box; h: number }> = [];
   const grain = (g: CanvasRenderingContext2D, w: number, h: number, n: number, a: number) => { for (let i = 0; i < n; i++) { g.fillStyle = `rgba(0,0,0,${r() * a})`; g.fillRect(Math.floor(r() * w), Math.floor(r() * h), 2, 2); } };
-  const solid = (x: number, z: number, w: number, d: number) => { const b = { minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 }; boxes.push(b); return b; };
+  const solid = (x: number, z: number, w: number, d: number, maxY?: number, minY?: number) => { const b = { minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, maxY, minY }; boxes.push(b); return b; };
 
   // ───────── Земля и разметка ─────────
   const asphalt = canvasTex(64, 64, (g, w, h) => {
@@ -136,7 +137,8 @@ export function buildWorld(): World {
   const metal = lambert({ color: 0x5a5e66 });
 
   const detail: THREE.BufferGeometry[] = [], rails: THREE.BufferGeometry[] = [], curbs: THREE.BufferGeometry[] = [];
-  const bit = (to: THREE.BufferGeometry[], w: number, h: number, d: number, x: number, y: number, z: number) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); to.push(g); };
+  let replaceBlock = false;
+  const bit = (to: THREE.BufferGeometry[], w: number, h: number, d: number, x: number, y: number, z: number) => { if (replaceBlock) return; const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); to.push(g); };
   /** Цоколь, парапет на крыше, балконы по длинным сторонам, будки и антенны. */
   const dress = (x: number, z: number, w: number, d: number, h: number, floorH: number, balconies: boolean) => {
     bit(detail, w + 0.16, 0.5, d + 0.16, x, 0.25, z);
@@ -160,7 +162,7 @@ export function buildWorld(): World {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [mx, mx, roof, roof, mz, mz]);
     m.position.set(x, h / 2, z);
     scene.add(m);
-    houses.push({ box: solid(x, z, w, d), h });
+    houses.push({ box: solid(x, z, w, d, h), h });
     dress(x, z, w, d, h, floorH, floorH === 3 && h > 8);
     return m;
   };
@@ -168,7 +170,7 @@ export function buildWorld(): World {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
     m.position.set(x, y, z);
     scene.add(m);
-    if (collide) solid(x, z, w, d);
+    if (collide) solid(x, z, w, d, y + h / 2, y - h / 2);
     return m;
   };
   /** Двускатная крыша: конёк вдоль X. */
@@ -194,7 +196,7 @@ export function buildWorld(): World {
     c.position.set(x, h + 0.9, z);
     c.rotation.y = r() * 3;
     scene.add(t, c);
-    solid(x, z, 0.3, 0.3);
+    solid(x, z, 0.3, 0.3, h);
   };
   const wheelGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.22, 8);
   const glass = lambert({ color: 0x2a3a50 });
@@ -213,7 +215,7 @@ export function buildWorld(): World {
     if (!alongX) g.rotation.y = Math.PI / 2;
     if (r() < 0.5) g.rotation.y += Math.PI;
     scene.add(g);
-    if (alongX) solid(x, z, 4.2, 1.75); else solid(x, z, 1.75, 4.2);
+    if (alongX) solid(x, z, 4.2, 1.75, 1.7); else solid(x, z, 1.75, 4.2, 1.7);
   };
   const benchMat = lambert({ color: 0x8a6a3a });
   const bench = (x: number, z: number, alongX: boolean) => {
@@ -243,6 +245,9 @@ export function buildWorld(): World {
     slab.position.set(cx, 0.025, cz);
     for (const s of [-1, 1]) { bit(curbs, inner + 0.3, 0.16, 0.3, cx, 0.08, cz + s * (inner / 2)); bit(curbs, 0.3, 0.16, inner + 0.3, cx + s * (inner / 2), 0.08, cz); }
     scene.add(slab);
+    // Прокручиваем старый генератор для этого участка, чтобы сохранить расположение и ID припасов в остальных кварталах.
+    replaceBlock = cx === APARTMENTS.x && cz === APARTMENTS.z;
+    const previous = [scene.children.length, boxes.length, houses.length, lootSites.length, nooks.length];
     const flip = r() < 0.5;
     const P = (lx: number, lz: number): [number, number] => (flip ? [cx + lz, cz + lx] : [cx + lx, cz + lz]);
     const S = (w: number, d: number): [number, number] => (flip ? [d, w] : [w, d]);
@@ -318,7 +323,7 @@ export function buildWorld(): World {
         const roof = new THREE.Mesh(gable(w + 0.8, d + 0.8, 1.9), pick(roofCol));
         roof.position.set(x, h, z);
         scene.add(m, roof);
-        houses.push({ box: solid(x, z, w, d), h });
+        houses.push({ box: solid(x, z, w, d, h), h });
         box(x + sx * 0.5, 0.2, z - sz * (d / 2 + 0.4), 1.4, 0.3, 0.8, benchMat); // крыльцо
         if (r() < 0.6) box(x - sx * (w / 2 + 0.9), 0.5, z, 1.2, 1, 2.2, lambert({ color: 0x6a5a48 }), true); // поленница
       }
@@ -334,6 +339,13 @@ export function buildWorld(): World {
       nooks.push({ x: cx - 8, z: cz - 9.5 });
       for (const lz of [-9, -5.5, 6, 9.5]) if (r() < 0.8) car(cx + 7 + r() * 2, cz + lz, true);
       tree(cx - 10, cz - 10); tree(cx - 10, cz + 10);
+    }
+    if (replaceBlock) {
+      scene.remove(...scene.children.slice(previous[0]));
+      boxes.length = previous[1]; houses.length = previous[2];
+      for (let i = previous[3]; i < lootSites.length; i++) lootSites[i] = { x: cx + 10.5, z: cz + 7 };
+      for (let i = previous[4]; i < nooks.length; i++) nooks[i] = { x: cx - 10.7, z: cz + 7 };
+      replaceBlock = false;
     }
   }
 

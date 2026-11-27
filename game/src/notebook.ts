@@ -1,4 +1,5 @@
 import type { Vec2 } from './config';
+import { ENTRANCE } from './apartments';
 import { AREA } from './world';
 
 export interface NotebookState {
@@ -64,7 +65,8 @@ export function drawNotebook(canvas: HTMLCanvasElement, s: NotebookState) {
     g.font = '700 21px Caveat, cursive';
     g.fillText(label, q.x + r + 6, q.y - r - 2);
   };
-  if (s.goal) mark(s.goal, '#d45b32', 8, 'сюда ведёт Тузик');
+  if (s.free) mark(ENTRANCE, '#963c2e', 7, 'дом 12');
+  if (s.goal && s.goal !== ENTRANCE) mark(s.goal, '#d45b32', 8, 'сюда ведёт Тузик');
   mark(s.dog, '#82532d', 7, 'Тузик');
   mark(s.player, '#20252b', 8, 'я');
   g.fillStyle = '#34302b';

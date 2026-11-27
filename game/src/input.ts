@@ -23,7 +23,7 @@ export class Input {
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
     document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement === canvas; });
-    addEventListener('mousedown', (e) => { if (this.locked && e.button === 0) this.keys.add('held:fire'); });
+    addEventListener('mousedown', (e) => { if (this.locked && e.button === 0) this.hold('held:fire', true); });
     addEventListener('mouseup', () => this.keys.delete('held:fire'));
     addEventListener('mousemove', (e) => { if (this.locked) { this.lookDX += e.movementX; this.lookDY += e.movementY; } });
     canvas.addEventListener('touchstart', (e) => this.onTouch(e, 'start'), { passive: false });
@@ -84,10 +84,14 @@ export class Input {
     this.run = run;
     this.hand = this.keys.has('KeyQ') || this.keys.has('held:hand');
     this.zoom = this.keys.has('KeyV');
-    this.fire = this.keys.has('Space') || this.keys.has('held:fire');
+    const fireKey = this.hit('Space'), fireTouch = this.hit('held:fire');
+    this.fire = fireKey || fireTouch || this.keys.has('Space') || this.keys.has('held:fire');
     const d = { x: this.lookDX, y: this.lookDY };
     this.lookDX = this.lookDY = 0;
     return d;
   }
-  hold(code: string, on: boolean) { if (on) this.keys.add(code); else this.keys.delete(code); }
+  hold(code: string, on: boolean) {
+    if (on) { this.keys.add(code); if (code === 'held:fire') this.pressed.add(code); }
+    else this.keys.delete(code);
+  }
 }

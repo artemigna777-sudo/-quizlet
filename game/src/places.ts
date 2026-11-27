@@ -1,5 +1,6 @@
 /** Места за пределами двора: магазин «Продукты», в который можно зайти, пост милиции и ящики с припасами на улицах. */
 import * as THREE from 'three';
+import type { Ballistics } from './ballistics';
 import type { Vec2 } from './config';
 import { canvasTex, lambert } from './gfx';
 import type { Spot } from './homes';
@@ -10,7 +11,7 @@ import { SHOP } from './world';
 
 export const POST: Vec2 = { x: -57.5, z: -57.5 };
 
-export async function buildPlaces(scene: THREE.Scene, boxes: Box[], lootSites: readonly Vec2[]): Promise<{ spots: Spot[]; inside(p: Vec2): boolean; drop(id: string, kind: LootKind, at: Vec2): Spot }> {
+export async function buildPlaces(scene: THREE.Scene, boxes: Box[], lootSites: readonly Vec2[], ballistics: Ballistics): Promise<{ spots: Spot[]; bulletBoxes: Box[]; inside(p: Vec2): boolean; drop(id: string, kind: LootKind, at: Vec2): Spot }> {
   const [shelf, table, crate, barrel, cash, rack, wet] = await Promise.all(['Shelf_01', 'painted_wooden_table', 'wooden_crate_02', 'barrel_03', 'CashRegister_01', 'steel_frame_shelves_01', 'WetFloorSign_01'].map(loadModel));
   const r = rng(555);
   const spots: Spot[] = [];
@@ -25,15 +26,22 @@ export async function buildPlaces(scene: THREE.Scene, boxes: Box[], lootSites: r
 
   // ───────── Магазин ─────────
   const X0 = SHOP.x - 11, X1 = SHOP.x + 3, Z0 = -6, Z1 = 6, H = 3.4, F = 0.05;
+  const bulletBoxes: Box[] = [];
   const wallMat = lambert({ map: canvasTex(32, 32, (g) => { g.fillStyle = '#e4dcc4'; g.fillRect(0, 0, 32, 32); g.fillStyle = '#7fa890'; g.fillRect(0, 18, 32, 14); g.fillStyle = 'rgba(0,0,0,.2)'; g.fillRect(0, 17, 32, 1); }, [6, 1]) });
   const wall = (x0: number, z0: number, x1: number, z1: number, y0 = 0, y1 = H, collide = true) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), wallMat);
     m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
     scene.add(m);
-    if (collide) solid(x0, z0, x1, z1);
+    if (collide) boxes.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, minY: y0, maxY: y1 });
+    else bulletBoxes.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, minY: y0, maxY: y1 });
   };
   wall(X0, Z0, X1, Z0 + 0.25); wall(X0, Z1 - 0.25, X1, Z1); wall(X1 - 0.25, Z0, X1, Z1);
-  wall(X0, Z0, X0 + 0.25, -0.8); wall(X0, 0.8, X0 + 0.25, Z1); wall(X0, -0.8, X0 + 0.25, 0.8, 2.2, H, false);
+  for (const [a, b] of [[-6, -5], [-2, -0.8], [0.8, 2], [5, 6]]) wall(X0, a, X0 + 0.25, b);
+  wall(X0, -0.8, X0 + 0.25, 0.8, 2.2, H, false);
+  for (const z of [-3.5, 3.5]) {
+    wall(X0, z - 1.5, X0 + 0.25, z + 1.5, 0, 0.8);
+    wall(X0, z - 1.5, X0 + 0.25, z + 1.5, 2.2, H, false);
+  }
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(X1 - X0, Z1 - Z0), new THREE.MeshLambertMaterial({ map: canvasTex(16, 16, (g) => { g.fillStyle = '#c8c0a8'; g.fillRect(0, 0, 16, 16); g.fillStyle = '#8a8474'; g.fillRect(0, 0, 8, 8); g.fillRect(8, 8, 8, 8); }, [10, 9]) }));
   floor.rotation.x = -Math.PI / 2; floor.position.set((X0 + X1) / 2, F + 0.02, 0);
   const ceil = new THREE.Mesh(new THREE.BoxGeometry(X1 - X0 + 0.6, 0.3, Z1 - Z0 + 0.6), lambert({ color: 0x55565c }));
@@ -42,8 +50,8 @@ export async function buildPlaces(scene: THREE.Scene, boxes: Box[], lootSites: r
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.1), lambert({ map: signTex }));
   sign.position.set(X0 - 0.03, 2.85, 0); sign.rotation.y = -Math.PI / 2;
   scene.add(floor, ceil, sign);
-  const winMat = lambert({ color: 0x2c3f5c });
-  for (const z of [-3.5, 3.5]) { const w = new THREE.Mesh(new THREE.PlaneGeometry(3, 1.4), winMat); w.position.set(X0 - 0.03, 1.5, z); w.rotation.y = -Math.PI / 2; scene.add(w); }
+  const winMat = new THREE.MeshBasicMaterial({ color: 0x617c92, transparent: true, opacity: 0.42, side: THREE.DoubleSide });
+  for (const z of [-3.5, 3.5]) { const w = new THREE.Mesh(new THREE.PlaneGeometry(3, 1.4), winMat); w.position.set(X0 + 0.12, 1.5, z); w.rotation.y = -Math.PI / 2; scene.add(w); ballistics.register(w, true); }
   const canMats = [0xb8322a, 0xd0a020, 0x3a7a4a, 0x2a5fa8, 0xc8c0b0].map((c) => lambert({ color: c }));
   const canGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.1, 6);
   const putShelf = (x: number, z: number, rot: number) => {
@@ -112,7 +120,7 @@ export async function buildPlaces(scene: THREE.Scene, boxes: Box[], lootSites: r
   }
 
   return {
-    spots,
+    spots, bulletBoxes,
     inside: (p) => p.x > X0 && p.x < X1 && p.z > Z0 && p.z < Z1,
     drop(id, kind, at) { loot(id, kind, at.x, 0.03, at.z); return spots.pop()!; },
   };

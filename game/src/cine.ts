@@ -15,7 +15,9 @@ export class Cine {
   private a = new THREE.Vector3();
   private b = new THREE.Vector3();
   private dur = 0;
-  constructor(private ui: { root: HTMLElement; sub: HTMLElement; title: HTMLElement }, private say: (id: string | null) => void) {}
+  private voiceDone = true;
+  private afterVoice = 0;
+  constructor(private ui: { root: HTMLElement; sub: HTMLElement; title: HTMLElement }, private say: (id: string | null, onEnd?: () => void) => void) {}
 
   play(shots: Shot[], done: () => void) {
     this.shots = shots; this.i = -1; this.done = done; this.active = true;
@@ -29,7 +31,9 @@ export class Cine {
     s.on?.();
     // Кадр длится не меньше, чем звучит реплика.
     this.dur = Math.max(s.dur, s.voice ? (VOICE_DUR[s.voice] ?? 0) + 0.5 : 0);
-    if (s.voice) this.say(s.voice);
+    this.voiceDone = !s.voice;
+    this.afterVoice = 0;
+    if (s.voice) this.say(s.voice, () => { this.voiceDone = true; });
     this.ui.sub.textContent = s.text ?? '';
     this.ui.title.textContent = s.title ?? '';
   }
@@ -52,6 +56,7 @@ export class Cine {
     this.cam.position.copy(this.a);
     this.a.set(...s.look); if (s.lookTo) this.a.lerp(this.b.set(...s.lookTo), e);
     this.cam.lookAt(this.a);
-    if (this.t >= this.dur) this.next();
+    if (this.voiceDone) this.afterVoice += dt;
+    if (this.t >= this.dur && this.voiceDone && (!s.voice || this.afterVoice >= 0.3)) this.next();
   }
 }
