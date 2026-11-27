@@ -107,6 +107,10 @@ mixamo.com. Mixamo разрешает бесплатно использоват�
 
 Реплики героя и тёти Зои синтезированы в Fish Audio (`tools/voice.mjs`): голоса «Молодой Рассказчик» и «Женский голос».
 
+## Лай Тузика
+
+- [Dog Barking, Single, A.wav](https://freesound.org/people/InspectorJ/sounds/406085/) — InspectorJ (Jonathan Shaw), Freesound, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Для игры вырезаны два лая, добавлены короткие затухания и эквализация, запись сведена в моно и перекодирована в MP3.
+
 ## Шрифты
 
 - Caveat, Russo One — лицензия SIL Open Font License.

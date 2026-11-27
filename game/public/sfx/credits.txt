@@ -1,0 +1,7 @@
+Лай Тузика — «Dog Barking, Single, A.wav», InspectorJ (Jonathan Shaw), Freesound.org.
+https://freesound.org/people/InspectorJ/sounds/406085/
+
+Лицензия Creative Commons Attribution 4.0 International (CC BY 4.0).
+https://creativecommons.org/licenses/by/4.0/
+
+Вырезаны два фрагмента. Добавлены эквализация и затухания, звук сведён в моно и перекодирован в MP3.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { APARTMENTS, apartmentHeight } from '../src/apartments';
 import { Dog } from '../src/dog';
+import { FACE_GLASS, facadeGlass } from '../src/facade';
 import { HOUSE12, HOUSE12_ID, house12SpotVisible, house12Target, readHouse12Progress } from '../src/house12';
 import { clearWalk, walkPath } from '../src/logic';
 
@@ -12,8 +13,23 @@ it('продолжает старое сохранение со стадии т�
   expect(house12SpotVisible(HOUSE12_ID.tape, tookTape)).toBe(false);
   expect(house12Target(tookTape)).toBe(HOUSE12_ID.deck);
   expect(house12SpotVisible(HOUSE12_ID.parcel, readHouse12Progress(4))).toBe(true);
-  expect(house12Target(readHouse12Progress(5))).toBeUndefined();
+  expect(house12Target(readHouse12Progress(5))).toBe(HOUSE12_ID.pipe);
+  expect(house12SpotVisible(HOUSE12_ID.pipe, readHouse12Progress(4))).toBe(false);
+  expect(house12Target(readHouse12Progress(6))).toBeUndefined();
   expect(readHouse12Progress(undefined)).toBe(HOUSE12.street);
+});
+
+it('различает отдельные стёкла на повторяющихся фасадах, стену и приподнятое окно машины', () => {
+  const facade = { box: { minX: 0, maxX: 8, minZ: 0, maxZ: 6 }, height: 6, tilesX: 2, tilesZ: 2, rows: 2, tile: FACE_GLASS.brick };
+  const y = (1 - 15 / 32) * 3;
+  const before = facadeGlass(facade, { x: 1.5, y, z: 6 });
+  expect(before?.key).toBe('2:0:0:0');
+  expect(facadeGlass(facade, { x: 5.5, y, z: 6 })?.key).toBe('2:1:0:0');
+  expect(facadeGlass(facade, { x: 6.5, y: y + 3, z: 0 })?.key).toBe('3:0:1:0');
+  expect(facadeGlass(facade, { x: 1, y, z: 6 })).toBeNull();
+  const carWindow = { ...facade, box: { ...facade.box, minY: 1 }, height: 0.66, tilesX: 1, tilesZ: 1, rows: 1, tile: FACE_GLASS.car };
+  expect(facadeGlass(carWindow, { x: 4, y: 1.33, z: 6 })?.y).toBeCloseTo(1.33);
+  expect(facadeGlass(carWindow, { x: 4, y: 0.7, z: 6 })).toBeNull();
 });
 
 describe('маршрут Тузика', () => {

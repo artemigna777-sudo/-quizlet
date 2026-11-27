@@ -14,7 +14,7 @@ import { photoCanvas } from './photos';
 import { HOMES, ITEMS, type HomeId, type Room } from './story';
 
 export interface Spot {
-  id: string; kind: 'note' | 'item' | 'gate' | 'loot' | 'bed' | 'bench' | 'talk' | 'tape' | 'deck'; home?: HomeId; room: Room; at: Vec2;
+  id: string; kind: 'note' | 'item' | 'gate' | 'loot' | 'bed' | 'bench' | 'talk' | 'tape' | 'deck' | 'pipe'; home?: HomeId; room: Room; at: Vec2;
   title: string; text: string; mesh: THREE.Object3D | null; loot?: LootKind; photo?: string; elevation?: number;
 }
 export interface Homes {

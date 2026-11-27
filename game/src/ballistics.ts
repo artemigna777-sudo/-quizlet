@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { canvasTex } from './gfx';
+import { facadeGlass, type Facade } from './facade';
 import type { Box } from './logic';
 
 type Pane = { mesh: THREE.Mesh; bounds: THREE.Box3; hits: number; open: boolean };
@@ -8,6 +9,7 @@ type Shard = { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number };
 
 export class Ballistics {
   private panes: Pane[] = [];
+  private facades: Map<Box, { facade: Facade; panes: Map<string, Pane> }>;
   private trails: Trail[] = [];
   private shards: Shard[] = [];
   private trailGeo = new THREE.BoxGeometry(0.018, 1, 0.018);
@@ -21,7 +23,9 @@ export class Ballistics {
   private up = new THREE.Vector3(0, 1, 0);
   private delta = new THREE.Vector3();
 
-  constructor(private scene: THREE.Scene) {}
+  constructor(private scene: THREE.Scene, facades: readonly Facade[] = []) {
+    this.facades = new Map(facades.map((facade) => [facade.box, { facade, panes: new Map() }]));
+  }
 
   private glassTexture(broken: boolean) {
     const map = canvasTex(48, 48, (g) => {
@@ -44,6 +48,7 @@ export class Ballistics {
 
   trace(ray: THREE.Ray, range: number, boxes: readonly Box[]) {
     let distance = range;
+    let wall: Box | null = null;
     let pane: Pane | null = null;
     const end = ray.at(range, new THREE.Vector3());
     const minX = Math.min(ray.origin.x, end.x), maxX = Math.max(ray.origin.x, end.x);
@@ -52,18 +57,35 @@ export class Ballistics {
       if (b.minX > maxX || b.maxX < minX || b.minZ > maxZ || b.maxZ < minZ) continue;
       this.bounds.min.set(b.minX, b.minY ?? 0, b.minZ);
       this.bounds.max.set(b.maxX, b.maxY ?? 2.9, b.maxZ);
-      if (ray.intersectBox(this.bounds, this.point)) distance = Math.min(distance, ray.origin.distanceTo(this.point));
+      if (ray.intersectBox(this.bounds, this.point)) {
+        const at = ray.origin.distanceTo(this.point);
+        if (at < distance) { distance = at; wall = b; }
+      }
     }
     for (const p of this.panes) {
       if (p.hits >= 2 || !ray.intersectBox(p.bounds, this.point)) continue;
       const at = ray.origin.distanceTo(this.point);
       if (at <= distance) { distance = at; pane = p; }
     }
+    const facade = !pane && wall ? this.facades.get(wall) : null;
+    if (facade) {
+      const hit = facadeGlass(facade.facade, ray.at(distance, this.point));
+      if (hit) {
+        pane = facade.panes.get(hit.key) ?? null;
+        if (!pane) {
+          const mesh = new THREE.Mesh(new THREE.PlaneGeometry(hit.width, hit.height), this.cracked);
+          mesh.position.set(hit.x, hit.y, hit.z); mesh.rotation.y = hit.yaw;
+          pane = { mesh, bounds: this.bounds.clone(), hits: 0, open: false };
+          facade.panes.set(hit.key, pane);
+        } else if (pane.hits >= 2) pane = null;
+      }
+    }
     return { distance, pane };
   }
 
   damage(pane: Pane, point: THREE.Vector3, direction: THREE.Vector3) {
     pane.hits++;
+    if (!pane.mesh.parent) this.scene.add(pane.mesh);
     if (pane.hits === 2 && pane.open) pane.mesh.visible = false;
     else pane.mesh.material = pane.hits === 1 ? this.cracked : this.broken;
     for (let i = 0; i < (pane.hits === 2 ? 10 : 4); i++) {

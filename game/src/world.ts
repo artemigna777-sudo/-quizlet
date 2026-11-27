@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { APARTMENTS } from './apartments';
 import { CFG, type Vec2 } from './config';
+import { FACE_GLASS, type Facade, type GlassTile } from './facade';
 import { canvasTex, lambert } from './gfx';
 import { rng, streetLines, type Box } from './logic';
 import { daylight } from './survival';
@@ -14,18 +15,20 @@ export interface Lamp { x: number; z: number; lx: number; lz: number; head: THRE
 export interface World {
   scene: THREE.Scene;
   boxes: Box[];
+  facades: Facade[];
   lamps: Lamp[];
   half: number;
   /** Места для припасов и засад — у гаражей, остановок, подъездов. */
   lootSites: Vec2[];
   nooks: Vec2[];
   /** Окно ближайшего дома зажигается, когда найдено воспоминание. */
-  lightWindow(at: Vec2): void;
+  lightWindow(at: Vec2): THREE.Mesh;
   setTime(tod: number): void;
   /** Первая глава: улицы за двором и магазином закрыты стеной помех. */
   setBounds(on: boolean): void;
   /** Тени от солнца и луны (режим «высокое качество»). */
   setShadows(on: boolean): void;
+  setBudget(on: boolean): void;
   update(t: number, cam: THREE.Vector3): void;
 }
 /** Кварталы, которые строят другие модули: двор и магазин. */
@@ -59,6 +62,8 @@ export function buildWorld(): World {
   const half = (CFG.blocks / 2) * CFG.pitch;
   const span = half * 2 + 40;
   const boxes: Box[] = [];
+  const facades: Facade[] = [];
+  const blocks: Array<{ x: number; z: number; group: THREE.Group }> = [];
   const lootSites: Vec2[] = [];
   const nooks: Vec2[] = [];
   const houses: Array<{ box: Box; h: number }> = [];
@@ -103,8 +108,10 @@ export function buildWorld(): World {
     g.strokeStyle = 'rgba(0,0,0,.35)'; g.strokeRect(0.5, 0.5, 31, 31); g.strokeRect(32.5, 0.5, 31, 31);
     g.fillStyle = '#e8e4d8'; g.fillRect(8, 7, 16, 15);
     g.fillStyle = '#2c3f5c'; g.fillRect(10, 9, 5, 11); g.fillRect(17, 9, 5, 11);
-    if (r() < 0.45) { g.fillStyle = '#07080c'; g.beginPath(); g.moveTo(10, 19); g.lineTo(12, 11); g.lineTo(14, 15); g.lineTo(15, 20); g.closePath(); g.fill(); g.strokeStyle = '#a8bccc'; g.beginPath(); g.moveTo(12, 11); g.lineTo(10, 9); g.moveTo(14, 15); g.lineTo(15, 10); g.stroke(); }
-    if (r() < 0.25) { g.fillStyle = '#7a5a36'; g.fillRect(16, 12, 7, 2); g.fillRect(16, 16, 7, 2); }
+    // Сохраняем последовательность генератора, чтобы не сдвинуть старые находки и дворы.
+    const dusty = r() < 0.45, warm = r() < 0.25;
+    if (dusty) { g.fillStyle = '#3a4d66'; g.fillRect(10, 9, 5, 3); }
+    if (warm) { g.fillStyle = '#574e51'; g.fillRect(17, 9, 5, 11); }
     g.fillStyle = '#e8e4d8'; g.fillRect(38, 5, 20, 14);
     g.fillStyle = '#2c3f5c'; g.fillRect(40, 7, 16, 10);
     g.fillStyle = pick(['#7a8a96', '#a05a4a', '#5a7a6a', '#8a8068']); g.fillRect(36, 19, 24, 9);
@@ -156,13 +163,15 @@ export function buildWorld(): World {
     }
   };
   /** Коробка дома с разными текстурами на длинных и коротких стенах. */
-  const building = (x: number, z: number, w: number, d: number, h: number, tex: (rx: number, ry: number) => THREE.Texture, bay: number, floorH: number, roof: THREE.Material = roofFlat) => {
+  const building = (x: number, z: number, w: number, d: number, h: number, tex: (rx: number, ry: number) => THREE.Texture, bay: number, floorH: number, tile: GlassTile) => {
     const fl = Math.round(h / floorH);
     const mx = lambert({ map: tex(Math.max(1, Math.round(d / bay)), fl) }), mz = lambert({ map: tex(Math.max(1, Math.round(w / bay)), fl) });
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [mx, mx, roof, roof, mz, mz]);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [mx, mx, roofFlat, roofFlat, mz, mz]);
     m.position.set(x, h / 2, z);
     scene.add(m);
-    houses.push({ box: solid(x, z, w, d, h), h });
+    const wall = solid(x, z, w, d, h);
+    houses.push({ box: wall, h });
+    if (!replaceBlock) facades.push({ box: wall, height: h, tilesX: mz.map!.repeat.x, tilesZ: mx.map!.repeat.x, rows: fl, tile });
     dress(x, z, w, d, h, floorH, floorH === 3 && h > 8);
     return m;
   };
@@ -187,16 +196,43 @@ export function buildWorld(): World {
     return geo;
   };
   const crownMats = [0x4f7a3a, 0x7a8a3a, 0xb8862a, 0xa85a2a, 0x5a8a4a].map((c) => lambert({ color: c }));
-  const trunkMat = lambert({ color: 0x4a3a2c });
+  const barkTex = canvasTex(24, 32, (c, w, h) => {
+    c.fillStyle = '#655545'; c.fillRect(0, 0, w, h);
+    for (let x = 0; x < w; x += 3) { c.fillStyle = x % 2 ? '#8b7a65' : '#433b35'; c.fillRect(x, x % 5, 1, h); c.fillRect(x + 1, 20 - x % 9, 1, 9); }
+  }, [2, 2]);
+  const trunkMat = lambert({ map: barkTex });
+  const trunkGeo = new THREE.CylinderGeometry(0.58, 1, 1, 7);
+  const foliageGeo = new THREE.IcosahedronGeometry(1, 1);
+  const treePieces = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  const treeMatrix = new THREE.Matrix4(), treeQ = new THREE.Quaternion(), treeScale = new THREE.Vector3(), treePos = new THREE.Vector3();
+  const branchDir = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  const treePiece = (geo: THREE.BufferGeometry, mat: THREE.Material) => {
+    treeMatrix.compose(treePos, treeQ, treeScale);
+    const pieces = treePieces.get(mat) ?? [];
+    pieces.push(geo.clone().applyMatrix4(treeMatrix));
+    treePieces.set(mat, pieces);
+  };
   const tree = (x: number, z: number) => {
     const h = 2.2 + r() * 1.6;
-    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, h, 5), trunkMat);
-    t.position.set(x, h / 2, z);
-    const c = new THREE.Mesh(new THREE.IcosahedronGeometry(1.3 + r() * 0.9, 0), pick(crownMats));
-    c.position.set(x, h + 0.9, z);
-    c.rotation.y = r() * 3;
-    scene.add(t, c);
+    const crown = 1.3 + r() * 0.9, color = pick(crownMats), angle = r() * 3;
     solid(x, z, 0.3, 0.3, h);
+    if (replaceBlock) return;
+    treeQ.identity(); treePos.set(x, h * 0.58, z); treeScale.set(0.19, h * 1.16, 0.19);
+    treePiece(trunkGeo, trunkMat);
+    for (let i = 0; i < 5; i++) {
+      const a = angle + i * 2.39996, reach = crown * (0.38 + (i % 3) * 0.17);
+      const bx = Math.cos(a) * reach, bz = Math.sin(a) * reach, baseY = h * (0.48 + i * 0.09), by = h * 0.42;
+      branchDir.set(bx, by, bz);
+      treeScale.set(0.105 - i * 0.008, branchDir.length(), 0.105 - i * 0.008);
+      treeQ.setFromUnitVectors(up, branchDir.normalize()); treePos.set(x + bx * 0.5, baseY + by * 0.5, z + bz * 0.5);
+      treePiece(trunkGeo, trunkMat);
+      const size = crown * (0.63 + (i % 2) * 0.13);
+      treeQ.setFromAxisAngle(up, a); treePos.set(x + bx, baseY + by + size * 0.47, z + bz);
+      treeScale.set(size, size * (0.78 + (i % 3) * 0.13), size * 0.88);
+      treePiece(foliageGeo, color);
+    }
+    treeQ.setFromAxisAngle(up, angle); treePos.set(x, h * 1.4 + crown * 0.32, z); treeScale.set(crown * 0.73, crown * 0.72, crown * 0.69);
+    treePiece(foliageGeo, color);
   };
   const wheelGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.22, 8);
   const glass = lambert({ color: 0x2a3a50 });
@@ -215,7 +251,12 @@ export function buildWorld(): World {
     if (!alongX) g.rotation.y = Math.PI / 2;
     if (r() < 0.5) g.rotation.y += Math.PI;
     scene.add(g);
-    if (alongX) solid(x, z, 4.2, 1.75, 1.7); else solid(x, z, 1.75, 4.2, 1.7);
+    if (alongX) solid(x, z, 4.2, 1.75, 1.05); else solid(x, z, 1.75, 4.2, 1.05);
+    if (!replaceBlock) {
+      const center = g.localToWorld(new THREE.Vector3(-0.2, 1.33, 0));
+      const cabBox = solid(center.x, center.z, alongX ? 2.2 : 1.6, alongX ? 1.6 : 2.2, 1.66, 1.0);
+      facades.push({ box: cabBox, height: 0.66, tilesX: 1, tilesZ: 1, rows: 1, tile: FACE_GLASS.car });
+    }
   };
   const benchMat = lambert({ color: 0x8a6a3a });
   const bench = (x: number, z: number, alongX: boolean) => {
@@ -236,6 +277,7 @@ export function buildWorld(): World {
   const mid = (CFG.blocks - 1) / 2;
   const first = -mid * CFG.pitch;
   for (let bx = 0; bx < CFG.blocks; bx++) for (let bz = 0; bz < CFG.blocks; bz++) {
+    const firstObject = scene.children.length;
     const cx = first + bx * CFG.pitch, cz = first + bz * CFG.pitch;
     const ring = Math.max(Math.abs(bx - mid), Math.abs(bz - mid));
     const green = ring === 3;
@@ -256,7 +298,7 @@ export function buildWorld(): World {
         const [x, z] = P(0, s * 7.6), [w, d] = S(24, 8.6);
         const floors = r() < 0.45 ? 9 : 5;
         const base = pick(PASTEL);
-        building(x, z, w, d, floors * 3, (rx, ry) => panelTex(base, rx / 2, ry), 3, 3);
+        building(x, z, w, d, floors * 3, (rx, ry) => panelTex(base, rx / 2, ry), 3, 3, FACE_GLASS.panel);
         for (const e of [-7, 7]) { const [ex, ez] = P(e, s * 2.9); box(ex, 1.3, ez, flip ? 0.9 : 2, 2.6, flip ? 2 : 0.9, dark); box(ex, 2.7, ez, flip ? 1.6 : 2.6, 0.12, flip ? 2.6 : 1.6, metal); }
       }
       const [tx, tz] = P(-10, 0); tree(tx, tz);
@@ -266,9 +308,9 @@ export function buildWorld(): World {
       nooks.push({ x: P(-5, 0)[0], z: P(-5, 0)[1] });
     } else if (kind === 'five') {
       const [x, z] = P(0, -8), [w, d] = S(24, 8);
-      building(x, z, w, d, 15, brickTex, 3, 3);
+      building(x, z, w, d, 15, brickTex, 3, 3, FACE_GLASS.brick);
       const [x2, z2] = P(-8.5, 4.5), [w2, d2] = S(8, 14);
-      building(x2, z2, w2, d2, 15, brickTex, 3, 3);
+      building(x2, z2, w2, d2, 15, brickTex, 3, 3, FACE_GLASS.brick);
       for (const [lx, lz] of [[3, 2], [9, 8], [2, 10]]) { const [tx, tz] = P(lx, lz); tree(tx, tz); }
       const [qx, qz] = P(6, 5); bench(qx, qz, flip);
       // Качели.
@@ -280,14 +322,14 @@ export function buildWorld(): World {
     } else if (kind === 'shops') {
       const [x, z] = P(0, -6.5), [w, d] = S(22, 9);
       const base = pick(['#c9c2b0', '#b8c4c8', '#d0b8a0']);
-      building(x, z, w, d, 4.2, (rx, ry) => plasterTex(base, rx, ry), 4, 4.2);
+      building(x, z, w, d, 4.2, (rx, ry) => plasterTex(base, rx, ry), 4, 4.2, FACE_GLASS.plaster);
       const names: Array<[string, string]> = [['АПТЕКА', '#2f8a4a'], ['ХОЗТОВАРЫ', '#8a5a2a'], ['ПОЧТА', '#2a4f9a'], ['ХЛЕБ', '#b8862a'], ['ОДЕЖДА', '#8a2a5a']];
       for (const e of [-7, 0, 7]) { const [n, bg] = pick(names); const [sx, sz] = P(e, -1.95); sign(n, sx, 3.5, sz, flip ? Math.PI / 2 : 0, 5, bg); }
       for (const e of [-8, -3, 4]) if (r() < 0.75) { const [px, pz] = P(e, 7); car(px, pz, flip); }
       lootSites.push({ x: P(-7, -1.2)[0], z: P(-7, -1.2)[1] }, { x: P(7, -1.2)[0], z: P(7, -1.2)[1] });
     } else if (kind === 'school') {
       const [x, z] = P(0, -4), [w, d] = S(22, 12);
-      building(x, z, w, d, 10.5, (rx, ry) => plasterTex('#d8c070', rx, ry), 3.5, 3.5);
+      building(x, z, w, d, 10.5, (rx, ry) => plasterTex('#d8c070', rx, ry), 3.5, 3.5, FACE_GLASS.plaster);
       const [sx, sz] = P(0, 2.05); sign('ШКОЛА № 3', sx, 3.6, sz, flip ? Math.PI / 2 : 0, 5, '#7a2a2a');
       const [fx, fz] = P(8, 6); box(fx, 3, fz, 0.08, 6, 0.08, metal, true);
       for (const [lx, lz] of [[-10, 8], [-4, 10], [10, 10]]) { const [tx, tz] = P(lx, lz); tree(tx, tz); }
@@ -323,7 +365,9 @@ export function buildWorld(): World {
         const roof = new THREE.Mesh(gable(w + 0.8, d + 0.8, 1.9), pick(roofCol));
         roof.position.set(x, h, z);
         scene.add(m, roof);
-        houses.push({ box: solid(x, z, w, d, h), h });
+        const wall = solid(x, z, w, d, h);
+        houses.push({ box: wall, h });
+        facades.push({ box: wall, height: h, tilesX: 1, tilesZ: 1, rows: 1, tile: FACE_GLASS.wood });
         box(x + sx * 0.5, 0.2, z - sz * (d / 2 + 0.4), 1.4, 0.3, 0.8, benchMat); // крыльцо
         if (r() < 0.6) box(x - sx * (w / 2 + 0.9), 0.5, z, 1.2, 1, 2.2, lambert({ color: 0x6a5a48 }), true); // поленница
       }
@@ -347,6 +391,15 @@ export function buildWorld(): World {
       for (let i = previous[4]; i < nooks.length; i++) nooks[i] = { x: cx - 10.7, z: cz + 7 };
       replaceBlock = false;
     }
+    const group = new THREE.Group();
+    group.add(...scene.children.slice(firstObject));
+    for (const [mat, pieces] of treePieces) {
+      group.add(new THREE.Mesh(mergeGeometries(pieces), mat));
+      pieces.forEach((piece) => piece.dispose());
+    }
+    treePieces.clear();
+    scene.add(group);
+    blocks.push({ x: cx, z: cz, group });
   }
 
   // Брошенные автобусы.
@@ -359,9 +412,11 @@ export function buildWorld(): World {
     g.add(body);
     for (const wx of [-3.2, 3.2]) for (const wz of [-1.15, 1.15]) { const wh = new THREE.Mesh(wheelGeo, dark); wh.scale.setScalar(1.5); wh.rotation.x = Math.PI / 2; wh.position.set(wx, 0.48, wz); g.add(wh); }
     g.position.set(x, 0, z);
-    g.rotation.y = (alongX ? 0 : Math.PI / 2) + (r() - 0.5) * 0.5;
+    const reversed = r() > 0.5;
+    g.rotation.y = (alongX ? 0 : Math.PI / 2) + (reversed ? Math.PI : 0);
     scene.add(g);
-    if (alongX) solid(x, z, 9.5, 2.8); else solid(x, z, 2.8, 9.5);
+    const bodyBox = solid(x, z, alongX ? 9.5 : 2.4, alongX ? 2.4 : 9.5, 2.9, 0.4);
+    facades.push({ box: bodyBox, height: 2.5, tilesX: 1, tilesZ: 1, rows: 1, tile: FACE_GLASS.bus });
   };
   const sl = streetLines();
   for (let n = 0; n < 5; n++) { const i = 1 + Math.floor(r() * (sl.length - 2)), c = first + Math.floor(r() * CFG.blocks) * CFG.pitch + (r() - 0.5) * 8; if (Math.abs(sl[i]) === 18 && Math.abs(c) < 30) continue; if (r() < 0.5) bus(c, sl[i] + 1.5, true); else bus(sl[i] - 1.5, c, false); }
@@ -483,6 +538,7 @@ export function buildWorld(): World {
     else if (at.z < b.minZ) { win.position.set(cx, y, b.minZ - 0.03); win.rotation.y = Math.PI; }
     else win.position.set(cx, y, b.maxZ + 0.03);
     scene.add(win);
+    return win;
   };
 
   // ───────── День и ночь ─────────
@@ -490,6 +546,12 @@ export function buildWorld(): World {
   const hemiN = hex('#5a6488'), hemiD = hex('#ffffff'), gndN = hex('#141218'), gndD = hex('#7a7468');
   const sunN = hex('#8090c0'), sunD = hex('#fff0d8');
   let day = 0;
+  let economy = false;
+  const setBudget = (on: boolean) => {
+    economy = on;
+    ashGeo.setDrawRange(0, on ? 80 : N);
+    pool.forEach((lamp, index) => { lamp.visible = !on || index === 0; });
+  };
   const sky = new THREE.Color();
   const setTime = (tod: number) => {
     day = daylight(tod);
@@ -498,7 +560,7 @@ export function buildWorld(): World {
     (scene.background as THREE.Color).copy(sky);
     fog.color.copy(sky);
     fog.near = 3 + day * 12;
-    fog.far = 38 + day * 72;
+    fog.far = economy ? 33 + day * 37 : 38 + day * 72;
     hemi.color.copy(hemiN).lerp(hemiD, day);
     hemi.groundColor.copy(gndN).lerp(gndD, day);
     hemi.intensity = 0.6 + day * 1.5;
@@ -512,6 +574,8 @@ export function buildWorld(): World {
   setTime(0);
 
   const update = (t: number, cam: THREE.Vector3) => {
+    const drawDistance = fog.far + 30;
+    for (const b of blocks) b.group.visible = (b.x - cam.x) ** 2 + (b.z - cam.z) ** 2 < drawDistance ** 2;
     sun.target.position.set(Math.round(cam.x), 0, Math.round(cam.z));
     sun.position.copy(sun.target.position).addScaledVector(sunDir, 70);
     const night = day < 0.3;
@@ -532,7 +596,7 @@ export function buildWorld(): World {
     moon.position.set(cam.x - Math.cos(a) * 60, -Math.sin(a) * 55, cam.z - 60);
     moon.visible = Math.sin(a) < 0.1;
     const p = ashGeo.attributes.position.array as Float32Array;
-    for (let i = 0; i < N; i++) {
+    for (let i = 0; i < (economy ? Math.min(80, N) : N); i++) {
       p[i * 3] = cam.x + ((((base[i * 3] + Math.sin(t * 0.8 + i) * 0.3 - cam.x) % 24) + 36) % 24) - 12;
       p[i * 3 + 1] = (((base[i * 3 + 1] - t * 0.5) % 9) + 9) % 9;
       p[i * 3 + 2] = cam.z + ((((base[i * 3 + 2] - cam.z) % 24) + 36) % 24) - 12;
@@ -542,5 +606,5 @@ export function buildWorld(): World {
     fenceTex.offset.set(Math.floor(t * 12) * 0.21, Math.floor(t * 12) * 0.17);
   };
 
-  return { scene, boxes, lamps, half, lootSites, nooks, lightWindow, setTime, setBounds, setShadows: (on) => { sun.castShadow = on; }, update };
+  return { scene, boxes, facades, lamps, half, lootSites, nooks, lightWindow, setTime, setBounds, setBudget, setShadows: (on) => { sun.castShadow = on; }, update };
 }

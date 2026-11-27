@@ -14,6 +14,7 @@ const LOCAL = (p: Vec2) => ({ x: p.x - APARTMENTS.x, z: p.z - APARTMENTS.z });
 const AT = (x: number, z: number): Vec2 => ({ x: APARTMENTS.x + x, z: APARTMENTS.z + z });
 export const TAPE_DECK = AT(3.44, 1.57);
 export const TAPE_DOOR = AT(5.15, 0);
+export const REPLY_PIPE = AT(8.54, -1.42);
 
 /** Высота на двух маршах с разворотом. Вне лестницы ходим по площадкам. */
 export function apartmentHeight(p: Vec2, old: number) {
@@ -26,7 +27,8 @@ export function apartmentHeight(p: Vec2, old: number) {
 }
 
 export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], ballistics: Ballistics) {
-  const ids = ['dining_table', 'painted_wooden_chair_01', 'painted_wooden_cabinet', 'vintage_day_bed', 'side_table_01', 'Sofa_01', 'boombox', 'pot_enamel_01', 'electric_stove', 'wooden_bookshelf_worn', 'throw_pillows_01', 'hanging_picture_frame_01', 'wall_clock', 'potted_plant_04'] as const;
+  const ids = ['dining_table', 'painted_wooden_chair_01', 'painted_wooden_cabinet', 'vintage_day_bed', 'side_table_01', 'Sofa_01', 'boombox', 'pot_enamel_01', 'electric_stove', 'wooden_bookshelf_worn', 'throw_pillows_01', 'hanging_picture_frame_01', 'wall_clock', 'potted_plant_04',
+    'SchoolDesk_01', 'ArmChair_01', 'vintage_electric_kettle', 'carved_wooden_plate', 'wooden_cutting_board', 'jug_01', 'stationery_supplies', 'football', 'wooden_crate_02', 'alarm_clock_01', 'Television_01', 'rubber_duck_toy', 'metal_tool_chest', 'ceramic_vase_01', 'wooden_table_02', 'Rockingchair_01', 'plastic_monobloc_chair_01', 'long_life_food'] as const;
   const models = new Map(await Promise.all(ids.map(async (id) => [id, await loadModel(id)] as const)));
   const root = new THREE.Group();
   root.position.set(APARTMENTS.x, 0, APARTMENTS.z);
@@ -49,6 +51,13 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
   const trim = lambert({ color: 0xc7bba5 }), door = lambert({ color: 0x604433 });
   const lamp = new THREE.MeshBasicMaterial({ color: 0xd1b984 });
   const glass = new THREE.MeshBasicMaterial({ color: 0x597584, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false });
+  const fabrics = ['#7c4b45', '#7a8071', '#6c665a', '#ae9462', '#4e706d', '#836955'].map((color, i) => lambert({ map: canvasTex(48, 32, (c, w, h) => {
+    c.fillStyle = color; c.fillRect(0, 0, w, h);
+    c.fillStyle = 'rgba(35,24,17,.38)'; c.fillRect(2, 2, w - 4, h - 4);
+    c.fillStyle = color; c.fillRect(5, 4, w - 10, h - 8);
+    c.strokeStyle = 'rgba(240,209,165,.55)'; c.strokeRect(5.5, 4.5, w - 11, h - 9);
+    for (let x = 8; x < w - 7; x += 8) { c.beginPath(); c.moveTo(x, 16); c.lineTo(x + 4, 9 + i % 3); c.lineTo(x + 7, 16); c.lineTo(x + 4, 23 - i % 3); c.closePath(); c.stroke(); }
+  }) }));
   const regions: Box[][] = [[], [], []];
   const solids: Box[] = [];
   const stairRail: Box[] = [];
@@ -93,6 +102,11 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
     mesh.position.set(x, f * H + y, z); mesh.rotation.x = rx; root.add(mesh);
     spots.push({ id, kind: 'note', room: 'A', at: AT(x, z), elevation: f * H, title, text, mesh });
     return mesh;
+  };
+  const rug = (material: THREE.Material, x: number, y: number, z: number, w: number, d: number) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), material);
+    m.position.set(x, y + 0.017, z); m.rotation.x = -Math.PI / 2; root.add(m);
+    return m;
   };
   const windowWall = (y: number, z: number, x: number, f: number, mat: THREE.Material) => {
     const exterior = z > 0 ? [mat, mat, mat, mat, brick, mat] : [mat, mat, mat, mat, mat, brick];
@@ -144,6 +158,72 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
       const pillows = put('throw_pillows_01', s * 8.19, y + 0.5, -3.65, f, Math.PI / 2, 0.7);
       const wallItem = put(variant % 2 ? 'wall_clock' : 'hanging_picture_frame_01', s * 8.74, y + 1.54, -2.1, f, -s * Math.PI / 2);
       if (f === 2 && s === 1) backRoom.add(bed, shelf, pillows, wallItem);
+      rug(fabrics[variant], s * 3.35, y, 3.92, 2.1, 1.75);
+      const rearRug = rug(fabrics[variant], s * 6.5, y, -2.85, 2.6, 2.28);
+      if (variant === 5) backRoom.add(rearRug);
+      // Окна остаются видны между занавесками; под ними батарея, к которой ведёт стояк.
+      for (const z of [-5.74, 5.74]) {
+        const linens = new THREE.Group(); root.add(linens);
+        for (const side of [-1, 1]) {
+          const x = s * 6.1 + side * 0.87;
+          linens.add(box(x, y + 1.86, z, 0.38, 1.51, 0.085, fabrics[variant]));
+        }
+        linens.add(box(s * 6.1, y + 2.62, z, 2.30, 0.045, 0.045, trim));
+        linens.add(box(s * 6.1, y + 0.53, z, 1.47, 0.52, 0.15, trim));
+        for (let i = -3; i <= 3; i++) linens.add(box(s * 6.1 + i * 0.17, y + 0.53, z - Math.sign(z) * 0.085, 0.046, 0.43, 0.03, concrete));
+        if (variant === 5 && z < 0) backRoom.add(linens);
+      }
+      // У каждой семьи свой набор вещей. Центр комнаты и путь от двери остаются свободны.
+      const tableTop = y + models.get('dining_table')!.size.y;
+      switch (variant) {
+        case 0:
+          surface(-7.35, y + 1.13, 1.30, 0.11, 2.26, 2.22, paper, f);
+          put('SchoolDesk_01', -6.65, y, -4.83, f, Math.PI);
+          put('stationery_supplies', -6.64, y + models.get('SchoolDesk_01')!.size.y * 0.88, -4.76, f, 0.25, 0.76);
+          put('football', -7.16, y, -4.22, f, 0, 0.9);
+          put('wooden_cutting_board', -6.78, tableTop, 3.79, f, 0.3, 0.74);
+          put('jug_01', -6.2, tableTop, 3.77, f, 0, 0.75);
+          break;
+        case 1:
+          surface(7.43, y + 1.10, -2.0, 2.76, 2.2, 0.115, paper, f);
+          put('wooden_table_02', 7.99, y, -4.87, f, 0);
+          {
+            const top = y + models.get('wooden_table_02')!.size.y;
+            box(7.99, top + 0.023, -4.87, 0.50, 0.046, 0.21, door);
+            box(8.14, top + 0.16, -4.87, 0.12, 0.26, 0.15, metal);
+            box(7.97, top + 0.27, -4.87, 0.34, 0.09, 0.13, metal);
+            box(7.80, top + 0.17, -4.87, 0.016, 0.16, 0.016, trim);
+            box(8.10, top + 0.33, -4.86, 0.064, 0.074, 0.064, fabrics[variant]);
+          }
+          put('wooden_crate_02', 3.0, y, 5.30, f, 0.1, 0.67);
+          put('ceramic_vase_01', 7.08, y + models.get('side_table_01')!.size.y, 2.45, f, 0, 0.77);
+          break;
+        case 2:
+          put('metal_tool_chest', -3.56, y, -4.42, f, 0.24, 0.68);
+          put('alarm_clock_01', -7.04, y + models.get('side_table_01')!.size.y, -4.77, f, 0.2, 0.8);
+          put('carved_wooden_plate', -6.65, tableTop, 3.67, f, 0.1, 0.72);
+          break;
+        case 3:
+          surface(5.78, y + 1.03, -4.44, 0.12, 2.06, 2.62, paper, f);
+          put('ArmChair_01', 7.89, y, -4.40, f, -1.05, 0.86);
+          put('side_table_01', 6.62, y, -5.09, f);
+          put('Television_01', 6.62, y + models.get('side_table_01')!.size.y, -5.09, f, 0.25, 0.76);
+          put('long_life_food', 7.9, y + models.get('painted_wooden_cabinet')!.size.y, 4.7, f, 0, 0.6);
+          break;
+        case 4:
+          put('Rockingchair_01', -6.98, y, -4.88, f, 0.44, 0.8);
+          put('rubber_duck_toy', -5.82, y + 0.07, -3.99, f, 0.3, 0.74);
+          put('carved_wooden_plate', -6.27, tableTop, 3.34, f, 0.2, 0.82);
+          put('jug_01', -6.72, tableTop, 3.65, f, 0, 0.67);
+          break;
+        case 5:
+          put('vintage_electric_kettle', 6.79, y + models.get('electric_stove')!.size.y, 3.8, f, 0.3, 0.66);
+          put('wooden_cutting_board', 8.31, y + models.get('painted_wooden_cabinet')!.size.y, 4.6, f, 0.2, 0.81);
+          backRoom.add(put('SchoolDesk_01', 7.64, y, -4.95, f, Math.PI, 0.84));
+          backRoom.add(put('football', 7.25, y, -4.55, f, 0.4, 0.67));
+          backRoom.add(put('plastic_monobloc_chair_01', 7.70, y, -4.18, f, -0.3, 0.64));
+          break;
+      }
       box(s * 5, y + 2.86, 2.8, 0.76, 0.05, 0.32, lamp);
     }
     surface(0, y + 1.5, -5.88, 4, 3, 0.24, brick, f);
@@ -190,11 +270,15 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
   }
 
   for (let i = 0; i < 2; i++) box(-1.45 + i * 0.65, 1.36, 5.69, 0.59, 0.64, 0.18, metal);
-  note('chapter2:notice', 0, -1.28, 1.38, 5.58, 'Записка на почтовых ящиках', 'Лида, ключ больше не прячем под ковриком. Почтальон им открывает подъезд, а потом дверь хлопает до ночи. Показания счётчика оставь на третьем, в шестой квартире. — Вера', 0);
-  note('chapter2:receipt', 0, -6.5, models.get('dining_table')!.size.y + 0.016, 3.4, 'Квитанция за март', 'Кв. 1. Оплачено 18 марта. На обороте: «Вера, у вас девятка на счётчике заедает. У меня такая же. В квитанцию пишу ту цифру, которую слышно».' );
+  note('chapter2:notice', 0, -1.28, 1.38, 5.58, 'Записка на почтовых ящиках', '«Если придёшь с Тузиком, поднимись в шестую. Не зови мальчика по имени с лестницы. Он теперь отвечает даже тем, кто его никогда не видел».\n\nТузик нацарапано тем же почерком, что и слова у тебя на ладони.', 0);
+  note('chapter2:receipt', 0, -6.5, models.get('dining_table')!.size.y + 0.016, 3.4, 'Расписание на обороте квитанции', '«Костя: после школы переоденься, поешь. Когда я со смены, стучу два раза быстро, жду и стучу ещё раз. Если кто-то стучит по-другому, не открывай».\n\nПод расписанием ребёнок пририсовал Тузика у двери.');
   const tableHeight = models.get('side_table_01')!.size.y;
-  note('chapter2:repair', 1, -3.00, tableHeight + 0.015, -4.95, 'Талон из радиомастерской', 'Магнитофон № 2619. В графе «неисправность» написано: «Пишет поверх чистой ленты даже без батареек». Вера забрала аппарат наверх, а кассету так и оставили на тумбочке у кровати.');
-  note(HOUSE12_ID.ledger, 2, 6.52, models.get('electric_stove')!.size.y + 0.016, 3.18, 'Тетрадь из шестой квартиры', 'Кв. 6. Вторник, 6:40. Вода — 0021. Газ — перекрыт. Ключ вернуть Лиде.\nВ графе «Кто снял показания» за меня расписалась соседка из первой. Её подпись я узнала. На бумаге она была сухая, а на пальцах остались чернила.\n\nНа полях: «Кассета осталась в третьей квартире, у кровати. Вернуть сюда, в аппарат № 2619».');
+  note('chapter2:repair', 1, -3.00, tableHeight + 0.015, -4.95, 'Талон из радиомастерской', '«Лидия Корнеева, магнитофон № 2619. Жалоба: на кассете слышно, как сын стучит из комнаты. Сын в это время сидел рядом с матерью».\n\nМастер подчеркнул «рядом» дважды. Кассету попросил держать отдельно.');
+  note(HOUSE12_ID.ledger, 2, 6.52, models.get('electric_stove')!.size.y + 0.016, 3.18, 'Дежурства по дому', 'Понедельник. Костя спит у меня на раскладушке, пока Лида на смене. Поставила стакан воды на тумбочку.\nВторник. Утром у его комнаты осталась только штукатурка. Стакан с другой стороны стены всё равно опустел.\n\nВера: «Лидину кассету забрали в третью, к радиолюбителю. Она у кровати. Если вернуть кассету в её аппарат, может быть, комната вспомнит, кого ждала».');
+  const message = (id: string, f: number, x: number, z: number, title: string, body: string) => note(id, f, x, 1.43, z, title, body, 0);
+  message('chapter2:seam', 0, 7.72, -5.73, 'Выцветший заказ на подшив брюк', '«Корнеев Костя, подшить на 4 см. Оставить запас под рост». На полях: «Деньги не брать. Пусть приносит банку из-под пуговиц, как обещал».');
+  message('chapter2:watch', 1, 7.65, -5.73, 'Журнал дежурного', '02:10. В квартиру 1 звонят снизу. С лестницы слышал мальчика. С окна увидел взрослого в чужих тапочках. Домофон отключил.');
+  message('chapter2:neighbor', 2, -7.65, -5.73, 'Список покупок на двоих', '«Вере — чай. Косте — молоко в маленьком пакете, большой выливает, когда не достаёт до стола». Вторая строка вычеркнута и написана снова.');
 
   const tape = new THREE.Group();
   const tapeX = -6.8, tapeZ = -4.72;
@@ -235,7 +319,11 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
   regions[2].push(gateBox);
   const backTableX = 4.1, backTableZ = -4.89;
   backRoom.add(put('side_table_01', backTableX, 2 * H, backTableZ, 2));
-  backRoom.add(note(HOUSE12_ID.parcel, 2, backTableX, tableHeight + 0.019, backTableZ, 'Письмо для первой квартиры', 'Получатель: Лидия Корнеева, дом 12, кв. 1. На обороте Вера написала: «Почтальон уже дважды вернул конверт. Говорит, на первом этаже нет такой двери».\n\nПод штемпелем шариковой ручкой: «Если опять не принесут — отнеси в радиомастерскую. Там договорились оставить письма».'));
+  backRoom.add(note(HOUSE12_ID.parcel, 2, backTableX, tableHeight + 0.019, backTableZ, 'Конверт из-под стакана', 'На конверте детский рисунок. Тузик бежит к дому, рядом с ним человек без лица. У трубы нарисованы три чёрточки: две рядом, третья отдельно.\n\n«Если мама не дома, не зови. Стукни по трубе, как она. Я тогда скажу, где дверь. Костя».'));
+  const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, H, 8), metal);
+  pipe.position.set(REPLY_PIPE.x - APARTMENTS.x, 2 * H + 1.5, REPLY_PIPE.z - APARTMENTS.z);
+  backRoom.add(pipe);
+  spots.push({ id: HOUSE12_ID.pipe, kind: 'pipe', room: 'B', at: REPLY_PIPE, elevation: 2 * H, title: 'Труба отопления', text: '', mesh: pipe });
   const backLamp = new THREE.PointLight(0xdcb56d, 14, 5, 1.5);
   backLamp.position.set(5.2, 2 * H + 2.58, -2.8);
   backRoom.add(backLamp);
@@ -260,7 +348,13 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
   return {
     spots, bulletBoxes, inside, onStairs, setProgress,
     target(step: number) { return spots.find((s) => s.id === house12Target(step)); },
-    update(t: number) { if (gate.visible) interference.offset.y = (Math.floor(t * 12) * 0.13) % 1; },
+    update(t: number, cam: THREE.Vector3, high: boolean) {
+      const distance = Math.hypot(cam.x - APARTMENTS.x, cam.z - APARTMENTS.z);
+      root.visible = distance < (high ? 127 : 84);
+      if (gate.visible && distance < 24) interference.offset.y = (Math.floor(t * 12) * 0.13) % 1;
+      if (high) backLamp.visible = distance < (backLamp.visible ? 26 : 20);
+      else backLamp.visible = distance < (backLamp.visible ? 15 : 10) && cam.y >= 6.20;
+    },
     collision(p: Vec2, height: number) { return inside(p) && height > 0.03 ? layers[Math.round(height / H)] : worldBoxes; },
     height: apartmentHeight,
   };

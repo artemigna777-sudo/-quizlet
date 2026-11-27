@@ -8,7 +8,7 @@ import { Arms, Enemies, WEAPON } from './combat';
 import { CFG, type Vec2 } from './config';
 import { Dog } from './dog';
 import { buildHomes, type Spot } from './homes';
-import { HOUSE12, HOUSE12_ID, TAPE_LINE, house12Objective, house12SpotVisible, readHouse12Progress } from './house12';
+import { HOUSE12, HOUSE12_ID, PIPE_REPLIES, TAPE_LINE, house12Objective, house12SpotVisible, readHouse12Progress } from './house12';
 import { Input } from './input';
 import { clearWalk, stepErasure } from './logic';
 import { animateMemories, buildMemories, type Memory } from './memories';
@@ -48,7 +48,7 @@ async function boot() {
   await Promise.allSettled([document.fonts.load('700 54px Caveat'), document.fonts.load('20px Russo')]);
 
   const canvas = $<HTMLCanvasElement>('view');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: matchMedia('(pointer: coarse)').matches ? 'low-power' : 'high-performance' });
   renderer.setPixelRatio(1);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -58,7 +58,7 @@ async function boot() {
   const shooter = new Shooter();
   const input = new Input(canvas, $('stick'));
   const sound = new Sound();
-  const ballistics = new Ballistics(world.scene);
+  const ballistics = new Ballistics(world.scene, world.facades);
   const arms = new Arms(player.camera);
   const cine = new Cine({ root: $('cine'), sub: $('cineSub'), title: $('cineTitle') }, (id, onEnd) => sound.say(id, onEnd));
   let enemies!: Enemies;
@@ -123,7 +123,8 @@ async function boot() {
   let saveT = 0;
   const commit = (next: Partial<Save>) => { st = { ...st, ...next, ammo: arms.ammo, axe: arms.hasAxe, gun: arms.hasGun }; found = [...st.found]; save(st); hud(); };
   const allMemories: Memory[] = buildMemories(world.scene, found);
-  allMemories.filter((m) => m.found).forEach((m) => world.lightWindow(m.at));
+  const lightMemoryWindow = (at: Vec2) => ballistics.register(world.lightWindow(at));
+  allMemories.filter((m) => m.found).forEach((m) => lightMemoryWindow(m.at));
   let memories: Memory[] = [];
   /** Первая глава идёт во дворе и вокруг него; после неё город открыт весь. */
   const applyChapter = () => {
@@ -160,21 +161,23 @@ async function boot() {
   const QKEY = 'erased-town:quality';
   let chosen: string | null = null;
   try { chosen = localStorage.getItem(QKEY); } catch { /* приватный режим */ }
-  let high = chosen !== 'low';
+  let high = chosen === 'high' || (!input.touch && chosen !== 'low');
   let probeT = 0, probeN = 0;
   world.scene.traverse((o) => {
     const m = o as THREE.Mesh;
     if (m.isMesh && !(m.material instanceof THREE.MeshBasicMaterial)) { m.castShadow = true; m.receiveShadow = true; }
   });
   const applyQuality = () => {
+    renderer.shadowMap.enabled = high;
     world.setShadows(high);
+    world.setBudget(!high);
     player.setShadows(high);
     $('quality').textContent = `КАЧЕСТВО: ${high ? 'ВЫСОКОЕ' : 'ОБЫЧНОЕ'}`;
     resize();
   };
   const resize = () => {
     const w = innerWidth, h = innerHeight;
-    const k = Math.max(1, Math.min(w, h) / (high ? 480 : CFG.pixels));
+    const k = Math.max(1, Math.min(w, h) / (high ? 480 : input.touch ? 235 : CFG.pixels));
     renderer.setSize(Math.round(w / k), Math.round(h / k), false);
     cine.cam.aspect = w / h;
     cine.cam.updateProjectionMatrix();
@@ -205,6 +208,7 @@ async function boot() {
     document.body.classList.toggle('bino', st.hold === 'bino');
   };
   const card = (title: string, text: string, kind: 'note' | 'memory', voice?: string, photo?: string) => {
+    $('pipeChoices').hidden = true;
     const img = $<HTMLImageElement>('cardImg');
     img.style.display = photo ? 'block' : 'none';
     if (photo) img.src = photoCanvas(photo).toDataURL('image/jpeg', 0.85);
@@ -231,7 +235,7 @@ async function boot() {
 
   const startGame = () => {
     sound.start();
-    sound.preloadVoices(Object.keys(VOICE_DUR));
+    sound.preloadVoices(input.touch ? ['h_intro1', 'h_intro2', 'h_wall'] : Object.keys(VOICE_DUR));
     if (input.touch) { void document.documentElement.requestFullscreen?.().then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape')).catch(() => {}); }
     if (!st.intro && !noCine) { st.intro = true; input.lock(); playIntro(); return; }
     setMode('play');
@@ -289,11 +293,27 @@ async function boot() {
   const playTape = () => {
     const { x, z } = TAPE_DECK, door = TAPE_DOOR;
     run([
-      { dur: 2.0, from: [x + 0.95, 7.45, z + 0.85], to: [x + 0.65, 7.12, z + 0.55], look: [x, 6.85, z], title: 'МАГНИТОФОН № 2619', text: 'Щелчок. Лента идёт, но слышны одни помехи.', on: () => sound.cassette() },
-      { dur: 5.4, from: [x + 0.65, 7.12, z + 0.55], look: [x, 6.85, z], title: 'ЗАПИСКА ПОД ВКЛАДЫШЕМ', text: TAPE_LINE },
-      { dur: 1.8, from: [door.x, 7.60, door.z + 2.15], to: [door.x, 7.60, door.z + 0.75], look: [door.x, 7.2, door.z - 1.4], on: () => { updateHouse12(HOUSE12.room); sound.pickup(); } },
-    ], () => toast('Дверь проявилась. Осмотри дальнюю комнату.', 5));
+      { dur: 2.5, from: [x + 0.95, 7.45, z + 0.85], to: [x + 0.65, 7.12, z + 0.55], look: [x, 6.85, z], title: 'МАГНИТОФОН № 2619', text: 'На записи — три удара. За стеной кто-то повторяет первые два.', on: () => { sound.cassette(); sound.knock([0.26, 0.5, 1.18], true); sound.knock([0, 0.24], true, 1.7); } },
+      { dur: 6.5, from: [x + 0.65, 7.12, z + 0.55], look: [x, 6.85, z], title: 'НА ОБОРОТЕ ВКЛАДЫША', text: TAPE_LINE },
+      { dur: 2.0, from: [door.x, 7.60, door.z + 2.15], to: [door.x, 7.60, door.z + 0.75], look: [door.x, 7.2, door.z - 1.4], on: () => { updateHouse12(HOUSE12.room); sound.knock([0.05], true); } },
+    ], () => toast('Комната вернулась. На столике возле окна остался конверт.', 5));
   };
+  for (const reply of PIPE_REPLIES) {
+    const button = document.createElement('button');
+    button.type = 'button'; button.textContent = reply.label;
+    button.onclick = () => {
+      if (mode !== 'card' || st.chapter2 !== HOUSE12.parcel) return;
+      sound.knock(reply.taps);
+      if (!reply.matches) {
+        $('cardText').textContent = 'Из трубы доходит только гул. Как Лида стучала? Подсказка осталась во вкладыше кассеты и на конверте.';
+        return;
+      }
+      sound.knock([0, 0.24, 0.92], true, 1.5);
+      updateHouse12(HOUSE12.answered);
+      card('Костя ответил', 'С той стороны раздался знакомый стук. Потом — совсем близко к трубе: «Мама у мастера. Он знает, где наша дверь. Вход со двора, за прачечной».\n\nТузик уже смотрит в окно.', 'memory');
+    };
+    $('pipeChoices').append(button);
+  }
   const ZP: Vec2 = { x: -7.4, z: 9.6 }; // тётя Зоя стоит у себя на кухне
   const ZDOOR = homes.door('zoya');
   const zoyaHome = () => { zoya.root.position.set(ZP.x, 0.05, ZP.z); zoya.root.rotation.y = 0; };
@@ -370,7 +390,7 @@ async function boot() {
   const pick = (m: Memory) => {
     m.found = true;
     world.scene.remove(m.mesh);
-    world.lightWindow(m.at);
+    lightMemoryWindow(m.at);
     commit({ found: [...st.found, m.id] });
     checkpoint = { ...m.at };
     sound.pickup();
@@ -415,6 +435,7 @@ async function boot() {
     if (s.kind === 'note') return `${s.photo ? 'посмотреть' : 'прочитать'}: ${s.title.toLowerCase()}`;
     if (s.kind === 'tape') return 'взять кассету';
     if (s.kind === 'deck') return st.chapter2 === HOUSE12.tape ? 'вставить кассету' : 'осмотреть магнитофон';
+    if (s.kind === 'pipe') return 'подойти к трубе и постучать';
     if (s.kind === 'loot') return `взять: ${s.title}`;
     if (s.kind === 'bed') return 'переждать ночь';
     if (s.kind === 'talk') return 'поговорить с Зоей';
@@ -451,6 +472,16 @@ async function boot() {
       if (st.chapter2 === HOUSE12.tape) playTape();
       else if (st.chapter2 >= HOUSE12.room) card('Вкладыш из кассеты', TAPE_LINE, 'note');
       else toast('На корпусе нацарапано «2619». Внутри пусто. Кассету оставили у кровати в третьей квартире.', 6);
+      return;
+    }
+    if (s.kind === 'pipe') {
+      if (st.chapter2 === HOUSE12.answered) {
+        card('Адрес радиомастерской', 'Вход со двора, за прачечной. Костя сказал, что мастер знает, где их дверь.', 'note');
+      } else {
+        card('Труба отопления', 'Труба дрожит. Из-за стены слышны два быстрых удара и пауза. Костя ждёт ответа.', 'note');
+        sound.knock([0.10, 0.34], true);
+        $('pipeChoices').hidden = false;
+      }
       return;
     }
     if (s.kind === 'talk') { talkZoya(); return; }
@@ -520,12 +551,19 @@ async function boot() {
 
   const clock = new THREE.Clock();
   let t = 0;
-  const frame = () => {
+  let nextFrameAt = 0;
+  const frame = (now: number) => {
+    requestAnimationFrame(frame);
+    if (document.hidden) { clock.getDelta(); nextFrameAt = 0; return; }
+    const portrait = input.touch && innerHeight > innerWidth;
+    const activeView = !portrait && (mode === 'play' || mode === 'cine' || mode === 'peek');
+    const interval = activeView ? (input.touch ? 1000 / 30 : 0) : 1000 / 12;
+    if (interval > 0 && now + 0.8 < nextFrameAt) return;
+    nextFrameAt = interval > 0 && now - nextFrameAt < interval ? nextFrameAt + interval : now + interval;
     const raw = clock.getDelta();
     const dt = Math.min(0.05, raw);
     t += dt;
     const look = input.frame();
-    const portrait = input.touch && innerHeight > innerWidth;
     $('rotate').style.display = portrait ? 'flex' : 'none';
     const playing = mode === 'play' && !portrait;
     const night = isNight(st.tod);
@@ -553,8 +591,8 @@ async function boot() {
       if (st.free && st.chapter2 === HOUSE12.street && Math.hypot(player.pos.x - ENTRANCE.x, player.pos.z - ENTRANCE.z) < 3.6) {
         updateHouse12(HOUSE12.entrance);
         if (!noCine) run([
-          { dur: 3.4, from: [ENTRANCE.x + 1.3, 1.55, ENTRANCE.z + 4], to: [ENTRANCE.x + 0.2, 1.55, ENTRANCE.z + 1], look: [ENTRANCE.x, 2.62, ENTRANCE.z - 0.9], title: 'ГЛАВА 2. ДОМ 12', text: 'В подъезде каждый почтовый ящик подписан от руки.' },
-        ], () => toast('Осмотри ящики в подъезде. На одном осталась записка.', 6));
+          { dur: 4.2, from: [ENTRANCE.x + 1.3, 1.55, ENTRANCE.z + 4], to: [ENTRANCE.x + 0.2, 1.55, ENTRANCE.z + 1], look: [ENTRANCE.x, 1.45, ENTRANCE.z - 0.9], title: 'ГЛАВА 2. ДОМ 12', text: 'Из подъезда стучат. Тузик завилял хвостом, как будто узнал кого-то.', on: () => sound.knock([0.3, 0.54], true) },
+        ], () => toast('У ящиков записка. Тузика тут уже знали.', 6));
       }
 
       // Голод и жажда.
@@ -568,7 +606,7 @@ async function boot() {
       // Пёс ведёт по запаху: сначала двор (к двери нужного дома), потом находки на улицах.
       const yardHome = !st.met || (allFound() && !st.free) ? 'zoya' : yardGoal(st);
       let goal: Vec2 | null = yardHome ? homes.door(yardHome) : null;
-      if (st.free && st.chapter2 < HOUSE12.parcel) goal = inApartments ? null : ENTRANCE;
+      if (st.free && st.chapter2 < HOUSE12.answered) goal = inApartments ? null : ENTRANCE;
       else if (goal && homes.inside(player.pos) === yardHome) goal = null;
       else if (!yardHome) goal = memories.filter((m) => !m.found).sort((a, b) => Math.hypot(a.at.x - player.pos.x, a.at.z - player.pos.z) - Math.hypot(b.at.x - player.pos.x, b.at.z - player.pos.z))[0]?.at ?? null;
       currentGoal = goal;
@@ -583,7 +621,7 @@ async function boot() {
       const localGoal = target && Math.abs(player.floor - guideFloor) < 0.2 && Math.abs(dog.floor - guideFloor) < 0.2 ? target.at : null;
       dog.update(dt, t, player.pos, fwd, inApartments ? localGoal : goal, 90, apartments.collision(dog.pos, dog.floor));
       dog.floor = apartments.height(dog.pos, dog.floor);
-      if (dog.barked) sound.bark();
+      if (dog.barked) sound.bark(Math.hypot(dog.pos.x - player.pos.x, dog.pos.z - player.pos.z));
       if (night && !siege) { shooter.update(dt, player.pos, fwd, world.lamps, Math.max(1, st.nights)); if (shooter.appeared) sound.sting(); } else shooter.mesh.visible = false;
       // Зоя поворачивается к тому, кто вошёл.
       const zd = Math.hypot(player.pos.x - zoya.root.position.x, player.pos.z - zoya.root.position.z);
@@ -645,7 +683,7 @@ async function boot() {
       if (input.hit('KeyE') && !cine.active) {
         if (near) pick(near);
         else if (spot) useSpot(spot);
-        else if (canPetDog()) { dog.pet(); sound.bark(); toast('Ты гладишь Тузика. Он на секунду забывает бояться города.', 3); }
+        else if (canPetDog()) { dog.pet(); toast('Ты гладишь Тузика. Он на секунду забывает бояться города.', 3); }
       }
       zoom = st.hold === 'bino' && input.zoom;
 
@@ -685,7 +723,7 @@ async function boot() {
     $('prompt').style.display = label ? 'block' : 'none';
     $('promptText').textContent = label ? (input.touch ? label : `E — ${label}`) : '';
     $('bAct').style.display = label && input.touch ? 'flex' : 'none';
-    $('bAct').textContent = nearDog ? 'ГЛАДИТЬ' : near || spot?.kind === 'item' || spot?.kind === 'loot' || spot?.kind === 'tape' ? 'ВЗЯТЬ' : spot?.kind === 'note' ? 'ЧИТАТЬ' : spot?.kind === 'deck' ? 'ПЛЁНКА' : 'ДВЕРЬ';
+    $('bAct').textContent = nearDog ? 'ГЛАДИТЬ' : near || spot?.kind === 'item' || spot?.kind === 'loot' || spot?.kind === 'tape' ? 'ВЗЯТЬ' : spot?.kind === 'note' ? 'ЧИТАТЬ' : spot?.kind === 'deck' ? 'ПЛЁНКА' : spot?.kind === 'pipe' ? 'СТУК' : 'ДВЕРЬ';
     if (flashT > 0) flashT = Math.max(0, flashT - dt * 1.2);
     $('flash').style.opacity = String(flashT);
     if (hitT > 0) hitT = Math.max(0, hitT - dt * 2);
@@ -706,9 +744,10 @@ async function boot() {
 
     animateMemories(memories, t);
     world.setTime(st.tod);
-    world.update(t, cine.active ? cine.cam.position : player.camera.position);
+    const cameraPosition = cine.active ? cine.cam.position : player.camera.position;
+    world.update(t, cameraPosition);
     homes.update(t);
-    apartments.update(t);
+    apartments.update(t, cameraPosition, high);
     ballistics.update(dt);
     murka.visible = revealed(st, 'zoya');
     if (murka.visible) {
@@ -719,7 +758,6 @@ async function boot() {
     zoya.update(dt);
     if (shooter.mesh.visible) shooterBody.update(dt);
     renderer.render(world.scene, cine.active ? cine.cam : player.camera);
-    requestAnimationFrame(frame);
   };
   player.update(0, input, { x: 0, y: 0 }, world.boxes, world.half, true);
   arms.update(0, false);
