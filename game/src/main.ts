@@ -1,6 +1,6 @@
 /** Главный цикл: меню → игра → записка / воспоминание / стирание. Прогресс хранится на устройстве. */
 import * as THREE from 'three';
-import { buildApartments, ENTRANCE } from './apartments';
+import { buildApartments, ENTRANCE, TAPE_DECK, TAPE_DOOR } from './apartments';
 import { Sound } from './audio';
 import { Ballistics } from './ballistics';
 import { Cine, type Shot } from './cine';
@@ -8,6 +8,7 @@ import { Arms, Enemies, WEAPON } from './combat';
 import { CFG, type Vec2 } from './config';
 import { Dog } from './dog';
 import { buildHomes, type Spot } from './homes';
+import { HOUSE12, HOUSE12_ID, TAPE_LINE, house12Objective, house12SpotVisible, readHouse12Progress } from './house12';
 import { Input } from './input';
 import { clearWalk, stepErasure } from './logic';
 import { animateMemories, buildMemories, type Memory } from './memories';
@@ -37,7 +38,7 @@ function loadSave(): Save {
       found: strs(v.found), taken, hold: typeof v.hold === 'string' && taken.includes(v.hold) ? v.hold : null, loot: strs(v.loot),
       food: num(v.food, 0, 99), water: num(v.water, 0, 99), ammo: num(v.ammo, 0), axe: v.axe === true, gun: v.gun === true,
       vit: { hp: Math.max(20, num(v.vit?.hp, 100, 100)), food: num(v.vit?.food, 80, 100), water: num(v.vit?.water, 75, 100) }, tod: num(v.tod, SURV.startTime, 0.9999),
-      parts: num(v.parts, 0, 99), axeLvl: num(v.axeLvl, 0, 1), gunLvl: num(v.gunLvl, 0, 1), intro: v.intro === true, nightSeen: v.nightSeen === true, free: v.free === true, met: v.met === true, zstage: num(v.zstage, 0, 4), nights: num(v.nights, 0, 99), chapter2: Math.floor(num(v.chapter2, 0, 2)),
+      parts: num(v.parts, 0, 99), axeLvl: num(v.axeLvl, 0, 1), gunLvl: num(v.gunLvl, 0, 1), intro: v.intro === true, nightSeen: v.nightSeen === true, free: v.free === true, met: v.met === true, zstage: num(v.zstage, 0, 4), nights: num(v.nights, 0, 99), chapter2: readHouse12Progress(v.chapter2),
     };
   } catch { return structuredClone(FRESH); }
 }
@@ -73,10 +74,13 @@ async function boot() {
   dog.place({ x: START.x + 0.4, z: START.z - 2.2 });
   const noCine = (window as unknown as { __noCine?: boolean }).__noCine === true;
   let st = loadSave();
+  const spawn = st.free && st.chapter2 >= HOUSE12.entrance ? ENTRANCE : START;
+  if (spawn === ENTRANCE) { player.pos = { ...ENTRANCE }; player.yaw = 0; dog.place({ x: ENTRANCE.x, z: ENTRANCE.z - 2.7 }); }
   let found = [...st.found];
   const startBtn = $<HTMLButtonElement>('start');
   const homes = await buildHomes(world.scene, world.boxes, ballistics, (k) => { startBtn.textContent = `ЗАГРУЗКА ${Math.round(k * 100)}%`; });
   const apartments = await buildApartments(world.scene, world.boxes, ballistics);
+  apartments.setProgress(st.chapter2);
   const places = await buildPlaces(world.scene, world.boxes, world.lootSites, ballistics);
   // Люди: копии Стрелка, сам Стрелок и тётя Зоя.
   startBtn.textContent = 'ЗАГРУЗКА ЛЮДЕЙ…';
@@ -130,7 +134,7 @@ async function boot() {
   applyChapter();
   let mode: Mode = 'menu';
   let pressure = 0;
-  let checkpoint: Vec2 = START;
+  let checkpoint: Vec2 = spawn;
   let playT = 0;
   let stepAt = 0;
   let warned = false;
@@ -187,8 +191,9 @@ async function boot() {
     $('memN').textContent = String(found.length);
     $('memAll').textContent = String(memories.length + HOMES.length);
     const it = st.hold ? itemOf(st.hold) : null;
-    $('hold').style.display = it ? 'block' : 'none';
-    $('holdName').textContent = it?.name ?? '';
+    const held = it?.name ?? (st.chapter2 === HOUSE12.tape ? 'Кассета' : '');
+    $('hold').style.display = held ? 'block' : 'none';
+    $('holdName').textContent = held;
     $('nFood').textContent = String(st.food);
     $('nWater').textContent = String(st.water);
     $('bEatN').textContent = String(st.food);
@@ -230,7 +235,7 @@ async function boot() {
     if (input.touch) { void document.documentElement.requestFullscreen?.().then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape')).catch(() => {}); }
     if (!st.intro && !noCine) { st.intro = true; input.lock(); playIntro(); return; }
     setMode('play');
-    if (playT === 0) toast('Ты не помнишь, кто ты.', 3.5);
+    if (playT === 0) toast(spawn === ENTRANCE ? 'Ты снова у дома 12.' : 'Ты не помнишь, кто ты.', 3.5);
   };
   $('start').onclick = startGame;
   $('reset').onclick = () => { save(structuredClone(FRESH)); location.reload(); };
@@ -276,6 +281,19 @@ async function boot() {
 
   // ───────── Сценки ─────────
   const run = (shots: Shot[], after: () => void) => { setMode('cine'); cine.play(shots, () => { setMode('play'); after(); }); };
+  const updateHouse12 = (step: number) => {
+    checkpoint = ENTRANCE;
+    apartments.setProgress(step);
+    commit({ chapter2: step });
+  };
+  const playTape = () => {
+    const { x, z } = TAPE_DECK, door = TAPE_DOOR;
+    run([
+      { dur: 2.0, from: [x + 0.95, 7.45, z + 0.85], to: [x + 0.65, 7.12, z + 0.55], look: [x, 6.85, z], title: 'МАГНИТОФОН № 2619', text: 'Щелчок. Лента идёт, но слышны одни помехи.', on: () => sound.cassette() },
+      { dur: 5.4, from: [x + 0.65, 7.12, z + 0.55], look: [x, 6.85, z], title: 'ЗАПИСКА ПОД ВКЛАДЫШЕМ', text: TAPE_LINE },
+      { dur: 1.8, from: [door.x, 7.60, door.z + 2.15], to: [door.x, 7.60, door.z + 0.75], look: [door.x, 7.2, door.z - 1.4], on: () => { updateHouse12(HOUSE12.room); sound.pickup(); } },
+    ], () => toast('Дверь проявилась. Осмотри дальнюю комнату.', 5));
+  };
   const ZP: Vec2 = { x: -7.4, z: 9.6 }; // тётя Зоя стоит у себя на кухне
   const ZDOOR = homes.door('zoya');
   const zoyaHome = () => { zoya.root.position.set(ZP.x, 0.05, ZP.z); zoya.root.rotation.y = 0; };
@@ -365,7 +383,8 @@ async function boot() {
     let best: Spot | null = null, bd = 1.9;
     for (const s of spots) {
       if (Math.abs((s.elevation ?? 0) - player.floor) > 0.42) continue;
-      if (!st.free && s.id.startsWith('chapter2:')) continue;
+      const house12Spot = s.id.startsWith('chapter2:');
+      if (house12Spot && (!st.free || !house12SpotVisible(s.id, st.chapter2))) continue;
       if (s.home && s.room === 'B' && !revealed(st, s.home)) continue;
       if (s.kind === 'item' && st.taken.includes(s.id)) continue;
       if (s.kind === 'loot' && st.loot.includes(s.id)) continue;
@@ -373,7 +392,14 @@ async function boot() {
       if (s.kind === 'bed' && !(revealed(st, s.home!) && isNight(st.tod) && !siege)) continue;
       const dx = s.at.x - player.pos.x, dz = s.at.z - player.pos.z;
       const d = Math.hypot(dx, dz);
-      if (d < bd && (d < 0.6 || (dx * f.x + dz * f.z) / d > 0.35)) { bd = d; best = s; }
+      if (d < bd && (d < 0.6 || (dx * f.x + dz * f.z) / d > 0.35)) {
+        if (house12Spot) {
+          // Стол, на котором лежит предмет, не мешает взять его. Стены и стёртая дверь перекрывают взаимодействие.
+          const sight = apartments.collision(player.pos, player.floor).filter((b) => s.at.x < b.minX || s.at.x > b.maxX || s.at.z < b.minZ || s.at.z > b.maxZ);
+          if (!clearWalk(player.pos, s.at, 0, sight)) continue;
+        }
+        bd = d; best = s;
+      }
     }
     return best;
   };
@@ -387,6 +413,8 @@ async function boot() {
   const VERB: Record<string, string> = { bowl: 'поставить миску у порога', key: 'открыть ключом', bino: 'посмотреть в глазок через бинокль', metro: 'завести метроном' };
   const spotLabel = (s: Spot): string => {
     if (s.kind === 'note') return `${s.photo ? 'посмотреть' : 'прочитать'}: ${s.title.toLowerCase()}`;
+    if (s.kind === 'tape') return 'взять кассету';
+    if (s.kind === 'deck') return st.chapter2 === HOUSE12.tape ? 'вставить кассету' : 'осмотреть магнитофон';
     if (s.kind === 'loot') return `взять: ${s.title}`;
     if (s.kind === 'bed') return 'переждать ночь';
     if (s.kind === 'talk') return 'поговорить с Зоей';
@@ -406,10 +434,23 @@ async function boot() {
   const useSpot = (s: Spot) => {
     if (s.kind === 'note') {
       sound.click();
-      if (s.id === 'chapter2:ledger' && st.chapter2 < 2) commit({ chapter2: 2 });
+      if (s.id === HOUSE12_ID.ledger && st.chapter2 < HOUSE12.ledger) updateHouse12(HOUSE12.ledger);
+      if (s.id === HOUSE12_ID.parcel && st.chapter2 === HOUSE12.room) { updateHouse12(HOUSE12.parcel); sound.pickup(); }
       const first = !!s.photo && !photoSaid;
       if (first) photoSaid = true;
       card(s.title, s.text, 'note', first ? 'h_photo' : undefined, s.photo);
+      return;
+    }
+    if (s.kind === 'tape') {
+      updateHouse12(HOUSE12.tape);
+      sound.pickup();
+      toast('Кассета в пакете с номером 2619. Магнитофон остался в шестой квартире.', 5);
+      return;
+    }
+    if (s.kind === 'deck') {
+      if (st.chapter2 === HOUSE12.tape) playTape();
+      else if (st.chapter2 >= HOUSE12.room) card('Вкладыш из кассеты', TAPE_LINE, 'note');
+      else toast('На корпусе нацарапано «2619». Внутри пусто. Кассету оставили у кровати в третьей квартире.', 6);
       return;
     }
     if (s.kind === 'talk') { talkZoya(); return; }
@@ -509,8 +550,8 @@ async function boot() {
       const fwd = player.forward();
       const inApartments = apartments.inside(player.pos);
       const indoors = inApartments || homes.inside(player.pos) !== null || places.inside(player.pos);
-      if (st.free && st.chapter2 === 0 && Math.hypot(player.pos.x - ENTRANCE.x, player.pos.z - ENTRANCE.z) < 3.6) {
-        commit({ chapter2: 1 });
+      if (st.free && st.chapter2 === HOUSE12.street && Math.hypot(player.pos.x - ENTRANCE.x, player.pos.z - ENTRANCE.z) < 3.6) {
+        updateHouse12(HOUSE12.entrance);
         if (!noCine) run([
           { dur: 3.4, from: [ENTRANCE.x + 1.3, 1.55, ENTRANCE.z + 4], to: [ENTRANCE.x + 0.2, 1.55, ENTRANCE.z + 1], look: [ENTRANCE.x, 2.62, ENTRANCE.z - 0.9], title: 'ГЛАВА 2. ДОМ 12', text: 'В подъезде каждый почтовый ящик подписан от руки.' },
         ], () => toast('Осмотри ящики в подъезде. На одном осталась записка.', 6));
@@ -527,7 +568,7 @@ async function boot() {
       // Пёс ведёт по запаху: сначала двор (к двери нужного дома), потом находки на улицах.
       const yardHome = !st.met || (allFound() && !st.free) ? 'zoya' : yardGoal(st);
       let goal: Vec2 | null = yardHome ? homes.door(yardHome) : null;
-      if (st.free && st.chapter2 < 2) goal = inApartments ? null : ENTRANCE;
+      if (st.free && st.chapter2 < HOUSE12.parcel) goal = inApartments ? null : ENTRANCE;
       else if (goal && homes.inside(player.pos) === yardHome) goal = null;
       else if (!yardHome) goal = memories.filter((m) => !m.found).sort((a, b) => Math.hypot(a.at.x - player.pos.x, a.at.z - player.pos.z) - Math.hypot(b.at.x - player.pos.x, b.at.z - player.pos.z))[0]?.at ?? null;
       currentGoal = goal;
@@ -537,7 +578,10 @@ async function boot() {
         const ahead = { x: player.pos.x + fwd.x, z: player.pos.z + fwd.z };
         dog.place(clearWalk(player.pos, ahead, CFG.dogRadius, colliders) ? ahead : player.pos, colliders);
       }
-      dog.update(dt, t, player.pos, fwd, inApartments ? null : goal, 90, apartments.collision(dog.pos, dog.floor));
+      const target = st.free && inApartments ? apartments.target(st.chapter2) : undefined;
+      const guideFloor = target?.elevation ?? 0;
+      const localGoal = target && Math.abs(player.floor - guideFloor) < 0.2 && Math.abs(dog.floor - guideFloor) < 0.2 ? target.at : null;
+      dog.update(dt, t, player.pos, fwd, inApartments ? localGoal : goal, 90, apartments.collision(dog.pos, dog.floor));
       dog.floor = apartments.height(dog.pos, dog.floor);
       if (dog.barked) sound.bark();
       if (night && !siege) { shooter.update(dt, player.pos, fwd, world.lamps, Math.max(1, st.nights)); if (shooter.appeared) sound.sting(); } else shooter.mesh.visible = false;
@@ -628,7 +672,7 @@ async function boot() {
     if (Math.abs(player.camera.fov - fov) > 0.1) { player.camera.fov += (fov - player.camera.fov) * Math.min(1, dt * 14); player.camera.updateProjectionMatrix(); }
     // Цель — одной строкой сверху.
     const holdIt = st.hold ? itemOf(st.hold) : null, nextHome = yardGoal(st);
-    const goalNow = st.free ? (st.chapter2 === 2 ? 'Дом 12 осмотрен. Дворы открыты' : apartments.inside(player.pos) ? 'Дом 12 · осмотри подъезд и квартиру 6 на третьем этаже' : 'Глава 2 · найди дом 12 по блокноту')
+    const goalNow = st.free ? house12Objective(st.chapter2, apartments.inside(player.pos))
       : siege ? 'Продержись до рассвета'
         : !st.met ? 'Иди за Тузиком: во втором доме кто-то есть'
           : holdIt ? `Верни вещь хозяину: ${holdIt.name} → дом ${homeOf(holdIt.owner).num}`
@@ -641,7 +685,7 @@ async function boot() {
     $('prompt').style.display = label ? 'block' : 'none';
     $('promptText').textContent = label ? (input.touch ? label : `E — ${label}`) : '';
     $('bAct').style.display = label && input.touch ? 'flex' : 'none';
-    $('bAct').textContent = nearDog ? 'ГЛАДИТЬ' : near || spot?.kind === 'item' || spot?.kind === 'loot' ? 'ВЗЯТЬ' : spot?.kind === 'note' ? 'ЧИТАТЬ' : 'ДВЕРЬ';
+    $('bAct').textContent = nearDog ? 'ГЛАДИТЬ' : near || spot?.kind === 'item' || spot?.kind === 'loot' || spot?.kind === 'tape' ? 'ВЗЯТЬ' : spot?.kind === 'note' ? 'ЧИТАТЬ' : spot?.kind === 'deck' ? 'ПЛЁНКА' : 'ДВЕРЬ';
     if (flashT > 0) flashT = Math.max(0, flashT - dt * 1.2);
     $('flash').style.opacity = String(flashT);
     if (hitT > 0) hitT = Math.max(0, hitT - dt * 2);
@@ -664,6 +708,7 @@ async function boot() {
     world.setTime(st.tod);
     world.update(t, cine.active ? cine.cam.position : player.camera.position);
     homes.update(t);
+    apartments.update(t);
     ballistics.update(dt);
     murka.visible = revealed(st, 'zoya');
     if (murka.visible) {

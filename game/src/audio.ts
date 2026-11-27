@@ -4,6 +4,7 @@ export class Sound {
   private master!: GainNode;
   private world!: GainNode;
   private noise!: GainNode;
+  private noiseBuffer!: AudioBuffer;
   private drone!: GainNode;
   enabled = true;
 
@@ -18,7 +19,7 @@ export class Sound {
     this.master.connect(ctx.destination);
     this.world = ctx.createGain();
     this.world.connect(this.master);
-    const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    const buf = this.noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     const loop = (filter: BiquadFilterType, freq: number, gain: number, to: AudioNode) => {
@@ -115,6 +116,19 @@ export class Sound {
   pickup() { this.tone(660, 660, 0.5, 0.16); setTimeout(() => this.tone(990, 990, 0.7, 0.14), 140); }
   sting() { this.tone(1480, 1400, 1.2, 0.05); this.tone(1567, 1500, 1.2, 0.05); }
   click() { this.tone(1800, 900, 0.04, 0.12, 'square'); }
+  cassette() {
+    const ctx = this.ctx;
+    if (!ctx || !this.enabled) return;
+    this.click();
+    const source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
+    source.buffer = this.noiseBuffer;
+    filter.type = 'bandpass'; filter.frequency.value = 1350; filter.Q.value = 0.85;
+    gain.gain.setValueAtTime(0.001, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.14, ctx.currentTime + 0.17);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
+    source.connect(filter).connect(gain).connect(this.master);
+    source.start(); source.stop(ctx.currentTime + 1.2);
+  }
   swing() { this.tone(300, 120, 0.16, 0.12, 'triangle'); }
   shot() { this.tone(180, 40, 0.12, 0.5, 'square', this.master); this.tone(1200, 200, 0.05, 0.2, 'sawtooth', this.master); }
   glass() { for (const f of [2370, 3260, 4310]) this.tone(f, f * 0.58, 0.19, 0.045, 'triangle', this.master); }

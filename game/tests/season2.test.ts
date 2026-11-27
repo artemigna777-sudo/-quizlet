@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { APARTMENTS, apartmentHeight } from '../src/apartments';
 import { Dog } from '../src/dog';
+import { HOUSE12, HOUSE12_ID, house12SpotVisible, house12Target, readHouse12Progress } from '../src/house12';
 import { clearWalk, walkPath } from '../src/logic';
+
+it('продолжает старое сохранение со стадии тетради и восстанавливает последующие стадии', () => {
+  const readLedger = readHouse12Progress(2);
+  expect(house12Target(readLedger)).toBe(HOUSE12_ID.tape);
+  expect(house12SpotVisible(HOUSE12_ID.parcel, readLedger)).toBe(false);
+  const tookTape = readHouse12Progress(3);
+  expect(house12SpotVisible(HOUSE12_ID.tape, tookTape)).toBe(false);
+  expect(house12Target(tookTape)).toBe(HOUSE12_ID.deck);
+  expect(house12SpotVisible(HOUSE12_ID.parcel, readHouse12Progress(4))).toBe(true);
+  expect(house12Target(readHouse12Progress(5))).toBeUndefined();
+  expect(readHouse12Progress(undefined)).toBe(HOUSE12.street);
+});
 
 describe('маршрут Тузика', () => {
   it('обходит забор и проходит через дверной проём с учётом ширины корпуса', () => {
