@@ -383,7 +383,7 @@ async function boot() {
     const porchHero = { at: { x: z.x - 0.77, z: z.z + 1.78 }, toward: { x: z.x, z: z.z - 0.2 }, carry: true };
     zoya.root.rotation.y = Math.atan2(porchHero.at.x - z.x, porchHero.at.z - z.z + 0.2);
     run([
-      { dur: 4, from: [z.x + 2.54, 1.58, z.z + 5.5], to: [z.x + 1.86, 1.46, z.z + 4.56], look: [z.x - 0.38, 1.02, z.z + 0.62], hero: porchHero, voice: 'z_end1', text: '— Рассвело. Живые. Дай хоть посмотри на тебя.' },
+      { dur: 4, from: [z.x + 2.54, 1.58, z.z + 5.5], to: [z.x + 1.86, 1.46, z.z + 4.56], look: [z.x - 0.38, 1.02, z.z + 0.62], hero: porchHero, voice: 'z_end1', text: '— Рассвело. Живые. Дай хоть посмотрю на тебя.' },
       { dur: 4, from: [z.x + 0.45, 1.6, z.z + 1.25], to: [z.x + 0.3, 1.6, z.z + 0.95], look: [z.x, 1.57, z.z - 0.2], voice: 'z_end2', text: '— Саша?.. Нет. Нет, Саши у нас не было. Или был?' },
       { dur: 3.5, from: [d.x + 1.2, 0.5, d.z + 1.2], to: [d.x + 0.8, 0.6, d.z + 0.8], look: [d.x, 0.75, d.z], voice: 'h_end', text: 'Саша. Кто такой Саша?', on: () => sound.bark() },
       { dur: 4, from: [48, 2.2, 15], to: [54, 1.7, 17], look: [AREA.maxX, 2.5, 18], text: 'Стена помех дрожит.' },
