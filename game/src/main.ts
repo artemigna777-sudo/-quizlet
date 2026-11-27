@@ -7,6 +7,7 @@ import { Cine, type Shot } from './cine';
 import { Arms, Enemies, WEAPON } from './combat';
 import { CFG, type Vec2 } from './config';
 import { Dog } from './dog';
+import { HeroBody } from './hero';
 import { buildHomes, type Spot } from './homes';
 import { HOUSE12, HOUSE12_ID, PIPE_REPLIES, TAPE_LINE, house12Objective, house12SpotVisible, readHouse12Progress } from './house12';
 import { Input } from './input';
@@ -54,6 +55,7 @@ async function boot() {
   renderer.shadowMap.type = THREE.PCFShadowMap;
   const world = buildWorld();
   const player = new Player();
+  const hero = new HeroBody();
   const dog = new Dog();
   const shooter = new Shooter();
   const input = new Input(canvas, $('stick'));
@@ -63,7 +65,7 @@ async function boot() {
   const cine = new Cine({ root: $('cine'), sub: $('cineSub'), title: $('cineTitle') }, (id, onEnd) => sound.say(id, onEnd));
   let enemies!: Enemies;
   let siege: { left: number } | null = null;
-  world.scene.add(player.camera, dog.mesh, shooter.mesh);
+  world.scene.add(player.camera, hero.root, dog.mesh, shooter.mesh);
   document.body.classList.toggle('touch', input.touch);
   player.camera.far = 130;
   player.camera.near = 0.1;
@@ -340,10 +342,12 @@ async function boot() {
       { dur: 3, from: [l.lx - ux * 3.2 + uz, 1.6, l.lz - uz * 3.2 - ux], look: [l.lx, 1.5, l.lz], voice: 'h_night3', text: 'Мигнуло. Никого.', on: () => { shooter.mesh.visible = false; sound.sting(); } },
     ], () => { nightTold = true; commit({}); toast('Ночь. Город лепит копии из тех, кого стёр.\nОни идут на звук шагов. В дома не заходят.\nВ доме, который вспомнили, ночь можно переждать.', 9); });
   };
-  // Крупные планы Зои: камера стоит в дверях её кухни.
+  const kitchenHero = { at: { x: -8.32, z: 11.60 }, toward: ZP };
+  // Общий план показывает собеседников, крупный оставляет в кадре лицо Зои.
   const zShot = (voice: string, text: string, close = false): Shot => close
     ? { dur: 3, from: [ZP.x + 0.5, 1.58, ZP.z + 1.5], to: [ZP.x + 0.35, 1.58, ZP.z + 1.25], look: [ZP.x, 1.56, ZP.z], voice, text }
-    : { dur: 3, from: [ZP.x + 0.9, 1.5, ZP.z + 3.4], to: [ZP.x + 0.7, 1.5, ZP.z + 2.6], look: [ZP.x, 1.35, ZP.z], voice, text };
+    : { dur: 3, from: [ZP.x + 1.55, 1.56, ZP.z + 2.81], to: [ZP.x + 1.32, 1.55, ZP.z + 2.62], look: [ZP.x - 0.34, 1.02, ZP.z + 0.93], voice, text,
+      hero: kitchenHero, on: () => { zoya.root.rotation.y = Math.atan2(kitchenHero.at.x - ZP.x, kitchenHero.at.z - ZP.z); } };
   const HINTS = [
     'Зоя: «Миска Мурки — у Нины Сергеевны, в первом доме».',
     'Зоя: «Ключ — в жестянке из-под чая, в спальне. Гена жил в третьем».',
@@ -376,8 +380,10 @@ async function boot() {
     zoya.root.position.set(ZDOOR.x, 0.05, ZDOOR.z - 0.2);
     dog.place({ x: ZDOOR.x + 0.2, z: ZDOOR.z + 1.0 });
     const d = dog.pos, z = ZDOOR;
+    const porchHero = { at: { x: z.x - 0.77, z: z.z + 1.78 }, toward: { x: z.x, z: z.z - 0.2 }, carry: true };
+    zoya.root.rotation.y = Math.atan2(porchHero.at.x - z.x, porchHero.at.z - z.z + 0.2);
     run([
-      { dur: 4, from: [z.x + 1, 1.7, z.z + 6], to: [z.x + 0.5, 1.6, z.z + 2.6], look: [z.x, 1.4, z.z - 0.2], voice: 'z_end1', text: '— Рассвело. Живые. Дай хоть посмотрю на тебя.' },
+      { dur: 4, from: [z.x + 2.54, 1.58, z.z + 5.5], to: [z.x + 1.86, 1.46, z.z + 4.56], look: [z.x - 0.38, 1.02, z.z + 0.62], hero: porchHero, voice: 'z_end1', text: '— Рассвело. Живые. Дай хоть посмотри на тебя.' },
       { dur: 4, from: [z.x + 0.45, 1.6, z.z + 1.25], to: [z.x + 0.3, 1.6, z.z + 0.95], look: [z.x, 1.57, z.z - 0.2], voice: 'z_end2', text: '— Саша?.. Нет. Нет, Саши у нас не было. Или был?' },
       { dur: 3.5, from: [d.x + 1.2, 0.5, d.z + 1.2], to: [d.x + 0.8, 0.6, d.z + 0.8], look: [d.x, 0.75, d.z], voice: 'h_end', text: 'Саша. Кто такой Саша?', on: () => sound.bark() },
       { dur: 4, from: [48, 2.2, 15], to: [54, 1.7, 17], look: [AREA.maxX, 2.5, 18], text: 'Стена помех дрожит.' },
@@ -744,6 +750,7 @@ async function boot() {
 
     animateMemories(memories, t);
     world.setTime(st.tod);
+    cine.update(Math.min(0.25, raw));
     const cameraPosition = cine.active ? cine.cam.position : player.camera.position;
     world.update(t, cameraPosition);
     homes.update(t);
@@ -754,7 +761,9 @@ async function boot() {
       (murka.userData.tail as THREE.Mesh).rotation.z = Math.sin(t * 2.2) * 0.5;
       if (!murkaSaid && mode === 'play' && Math.hypot(player.pos.x - murka.position.x, player.pos.z - murka.position.z) < 3) { murkaSaid = true; sound.say('h_murka'); toast('Мурка ест из своей миски.', 4); }
     }
-    cine.update(Math.min(0.25, raw));
+    hero.update(player, t, cine.active, cine.heroMark, arms.cur);
+    arms.show(!cine.active && (mode === 'play' || mode === 'peek') && !player.readingPalm);
+    player.showFlash(!cine.active);
     zoya.update(dt);
     if (shooter.mesh.visible) shooterBody.update(dt);
     renderer.render(world.scene, cine.active ? cine.cam : player.camera);
@@ -765,7 +774,7 @@ async function boot() {
 
   // Для проверок и отладки.
   (window as unknown as Record<string, unknown>).__game = {
-    player, dog, world, shooter, homes, enemies, arms, apartments, ballistics,
+    player, hero, dog, world, shooter, homes, enemies, arms, apartments, ballistics,
     get mode() { return mode; }, get pressure() { return pressure; }, get found() { return found; },
     get st() { return st; }, get spot() { return spot; },
     setTime(v: number) { st.tod = v; }, setVit(v: Partial<Vitals>) { st.vit = { ...st.vit, ...v }; },

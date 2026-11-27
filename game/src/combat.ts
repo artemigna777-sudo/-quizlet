@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three';
 import { CFG, type Vec2 } from './config';
+import { FIRST_PERSON_LAYER, weaponGrips } from './hero';
 import { resolveCircle, streetLines, type Box } from './logic';
 import { axeMesh, gunMesh } from './loot';
 import type { Actor, Look } from './people';
@@ -185,8 +186,15 @@ export class Arms {
   hasGun = false;
   ammo = 0;
   cur: WeaponId = 'none';
+  private view = new THREE.Group();
   private axe = axeMesh();
   private gun = gunMesh();
+  private grips = weaponGrips();
+  private axeGrip = new THREE.Vector3(0, -0.135, 0);
+  private gunGrip = new THREE.Vector3(0, -0.105, 0.145);
+  private gunSupport = new THREE.Vector3(-0.013, -0.024, -0.216);
+  private nearShoulder = new THREE.Vector3(0.48, -0.51, 0.04);
+  private farShoulder = new THREE.Vector3(-0.31, -0.57, -0.04);
   private flash = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.16), new THREE.MeshBasicMaterial({ color: 0xffe08a, fog: false }));
   private cool = 0;
   private anim = 0;
@@ -195,8 +203,11 @@ export class Arms {
     this.axe.scale.setScalar(1.1);
     this.gun.add(this.flash);
     this.flash.position.set(0, 0.02, -0.52);
-    camera.add(this.axe, this.gun);
+    this.view.add(this.axe, this.gun, ...this.grips.map((g) => g.root));
+    this.view.traverse((o) => o.layers.set(FIRST_PERSON_LAYER));
+    camera.add(this.view);
   }
+  show(on: boolean) { this.view.visible = on; }
   muzzle() { return this.flash.getWorldPosition(new THREE.Vector3()); }
   give(w: 'axe' | 'gun') { if (w === 'axe') this.hasAxe = true; else this.hasGun = true; this.cur = w; }
   swap() {
@@ -225,6 +236,14 @@ export class Arms {
     this.gun.rotation.set(kick * 0.05, 0.04, 0);
     this.flash.visible = kick > 0;
     this.flash.rotation.z = Math.random() * 3;
+    const [right, left] = this.grips;
+    right.root.visible = this.cur !== 'none';
+    left.root.visible = this.cur === 'gun';
+    if (this.cur === 'axe') right.follow(this.axe, this.axeGrip, this.nearShoulder);
+    if (this.cur === 'gun') {
+      right.follow(this.gun, this.gunGrip, this.nearShoulder);
+      left.follow(this.gun, this.gunSupport, this.farShoulder);
+    }
     return ev;
   }
 }

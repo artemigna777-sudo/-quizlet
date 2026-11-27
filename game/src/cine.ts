@@ -1,9 +1,10 @@
 /** Сценки на движке игры: своя камера летит по точкам, сверху и снизу — чёрные полосы, внизу — подпись. */
 import * as THREE from 'three';
+import { CINEMATIC_ACTOR_LAYER, type HeroMark } from './hero';
 import { VOICE_DUR } from './voicedur';
 
 type V3 = [number, number, number];
-export interface Shot { dur: number; from: V3; to?: V3; look: V3; lookTo?: V3; text?: string; title?: string; voice?: string; on?: () => void }
+export interface Shot { dur: number; from: V3; to?: V3; look: V3; lookTo?: V3; text?: string; title?: string; voice?: string; on?: () => void; hero?: HeroMark }
 
 export class Cine {
   readonly cam = new THREE.PerspectiveCamera(52, 1, 0.1, 160);
@@ -17,7 +18,10 @@ export class Cine {
   private dur = 0;
   private voiceDone = true;
   private afterVoice = 0;
-  constructor(private ui: { root: HTMLElement; sub: HTMLElement; title: HTMLElement }, private say: (id: string | null, onEnd?: () => void) => void) {}
+  constructor(private ui: { root: HTMLElement; sub: HTMLElement; title: HTMLElement }, private say: (id: string | null, onEnd?: () => void) => void) {
+    this.cam.layers.enable(CINEMATIC_ACTOR_LAYER);
+  }
+  get heroMark() { return this.active ? this.shots[this.i]?.hero : undefined; }
 
   play(shots: Shot[], done: () => void) {
     this.shots = shots; this.i = -1; this.done = done; this.active = true;

@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { CFG, type Vec2 } from './config';
 import { canvasTex } from './gfx';
+import { FIRST_PERSON_LAYER } from './hero';
 import type { Input } from './input';
 import { resolveCircle, type Box } from './logic';
 
@@ -21,9 +22,11 @@ export class Player {
   private hand: THREE.Mesh;
   private handK = 0;
   private bob = 0;
+  get readingPalm() { return this.handK > 0.18; }
 
   constructor() {
     this.camera.rotation.order = 'YXZ';
+    this.camera.layers.enable(FIRST_PERSON_LAYER);
     this.camera.add(this.flash);
     this.flash.position.set(0.25, -0.2, 0);
     this.camera.add(this.flash.target);
@@ -45,12 +48,14 @@ export class Player {
     });
     tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
     this.hand = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.52), new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.5, color: 0xd8c4b0, fog: false }));
+    this.hand.layers.set(FIRST_PERSON_LAYER);
     this.camera.add(this.hand);
     this.hand.visible = false;
   }
 
   /** Тень от фонарика (режим «высокое качество»). */
   setShadows(on: boolean) { this.flash.castShadow = on; this.flash.shadow.mapSize.set(512, 512); this.flash.shadow.bias = -0.002; this.flash.shadow.camera.near = 0.3; }
+  showFlash(on: boolean) { this.flash.visible = on; }
 
   /** Направление взгляда по земле. */
   forward(): Vec2 { return { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) }; }
