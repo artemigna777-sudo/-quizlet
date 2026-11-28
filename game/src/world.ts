@@ -10,12 +10,14 @@ import { FACE_GLASS, type Facade, type GlassTile } from './facade';
 import { canvasTex, lambert } from './gfx';
 import { rng, streetLines, type Box } from './logic';
 import { daylight } from './survival';
+import { SEASON_BLOCKS } from './season2';
 
 export interface Lamp { x: number; z: number; lx: number; lz: number; head: THREE.Mesh; mode: 'on' | 'off' | 'flicker'; phase: number }
 export interface World {
   scene: THREE.Scene;
   boxes: Box[];
   facades: Facade[];
+  footprints: readonly Box[];
   lamps: Lamp[];
   half: number;
   /** Места для припасов и засад — у гаражей, остановок, подъездов. */
@@ -288,7 +290,7 @@ export function buildWorld(): World {
     for (const s of [-1, 1]) { bit(curbs, inner + 0.3, 0.16, 0.3, cx, 0.08, cz + s * (inner / 2)); bit(curbs, 0.3, 0.16, inner + 0.3, cx + s * (inner / 2), 0.08, cz); }
     scene.add(slab);
     // Прокручиваем старый генератор для этого участка, чтобы сохранить расположение и ID припасов в остальных кварталах.
-    replaceBlock = cx === APARTMENTS.x && cz === APARTMENTS.z;
+    replaceBlock = (cx === APARTMENTS.x && cz === APARTMENTS.z) || SEASON_BLOCKS.some((site) => cx === site.x && cz === site.z);
     const previous = [scene.children.length, boxes.length, houses.length, lootSites.length, nooks.length];
     const flip = r() < 0.5;
     const P = (lx: number, lz: number): [number, number] => (flip ? [cx + lz, cz + lx] : [cx + lx, cz + lz]);
@@ -606,5 +608,5 @@ export function buildWorld(): World {
     fenceTex.offset.set(Math.floor(t * 12) * 0.21, Math.floor(t * 12) * 0.17);
   };
 
-  return { scene, boxes, facades, lamps, half, lootSites, nooks, lightWindow, setTime, setBounds, setBudget, setShadows: (on) => { sun.castShadow = on; }, update };
+  return { scene, boxes, facades, footprints: houses.map(({ box }) => box), lamps, half, lootSites, nooks, lightWindow, setTime, setBounds, setBudget, setShadows: (on) => { sun.castShadow = on; }, update };
 }

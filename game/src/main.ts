@@ -1,12 +1,13 @@
 /** Главный цикл: меню → игра → записка / воспоминание / стирание. Прогресс хранится на устройстве. */
 import * as THREE from 'three';
-import { buildApartments, ENTRANCE, TAPE_DECK, TAPE_DOOR } from './apartments';
+import { buildApartments, APARTMENTS, ENTRANCE, TAPE_DECK, TAPE_DOOR } from './apartments';
 import { Sound } from './audio';
 import { Ballistics } from './ballistics';
 import { Cine, type Shot } from './cine';
 import { Arms, Enemies, WEAPON } from './combat';
 import { CFG, type Vec2 } from './config';
 import { Dog } from './dog';
+import { canvasTex } from './gfx';
 import { HeroBody } from './hero';
 import { buildHomes, type Spot } from './homes';
 import { HOUSE12, HOUSE12_ID, PIPE_REPLIES, TAPE_LINE, house12Objective, house12SpotVisible, readHouse12Progress } from './house12';
@@ -19,6 +20,8 @@ import { loadPeople } from './people';
 import { photoCanvas } from './photos';
 import { Player } from './player';
 import { Shooter } from './shooter';
+import { buildSeasonWorld } from './season2-world';
+import { advanceSeason, canUseSeasonSpot, readSeasonProgress, WORKSHOP, WORKSHOP_ENTRY, DEPOT, DEPOT_ENTRY, DISPATCH, DISPATCH_ENTRY, seasonCheckpoint, seasonObjective, seasonTarget, SPOT_ACTION, SEASON_POINTS, type SeasonEvent, type SeasonProgress, type SeasonSpot } from './season2';
 import { HOMES, canReveal, canTake, homeOf, itemOf, memId, revealed, yardGoal, type YardState } from './story';
 import { SURV, advanceClock, clockText, daylight, drink, eat, grayOf, hurt, isNight, stepVitals, type Vitals } from './survival';
 import { VOICE_DUR } from './voicedur';
@@ -26,8 +29,8 @@ import { AREA, buildWorld, inArea } from './world';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 type Mode = 'menu' | 'play' | 'card' | 'erased' | 'pause' | 'peek' | 'cine' | 'map';
-interface Save extends YardState { loot: string[]; food: number; water: number; ammo: number; axe: boolean; gun: boolean; vit: Vitals; tod: number; parts: number; axeLvl: number; gunLvl: number; intro: boolean; nightSeen: boolean; free: boolean; met: boolean; zstage: number; nights: number; chapter2: number }
-const FRESH: Save = { found: [], taken: [], hold: null, loot: [], food: 0, water: 0, ammo: 0, axe: false, gun: false, vit: { hp: 100, food: 80, water: 75 }, tod: SURV.startTime, parts: 0, axeLvl: 0, gunLvl: 0, intro: false, nightSeen: false, free: false, met: false, zstage: 0, nights: 0, chapter2: 0 };
+interface Save extends YardState { loot: string[]; food: number; water: number; ammo: number; axe: boolean; gun: boolean; vit: Vitals; tod: number; parts: number; axeLvl: number; gunLvl: number; intro: boolean; nightSeen: boolean; free: boolean; met: boolean; zstage: number; nights: number; chapter2: number; season: SeasonProgress }
+const FRESH: Save = { found: [], taken: [], hold: null, loot: [], food: 0, water: 0, ammo: 0, axe: false, gun: false, vit: { hp: 100, food: 80, water: 75 }, tod: SURV.startTime, parts: 0, axeLvl: 0, gunLvl: 0, intro: false, nightSeen: false, free: false, met: false, zstage: 0, nights: 0, chapter2: 0, season: readSeasonProgress(null) };
 
 function loadSave(): Save {
   const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -39,7 +42,7 @@ function loadSave(): Save {
       found: strs(v.found), taken, hold: typeof v.hold === 'string' && taken.includes(v.hold) ? v.hold : null, loot: strs(v.loot),
       food: num(v.food, 0, 99), water: num(v.water, 0, 99), ammo: num(v.ammo, 0), axe: v.axe === true, gun: v.gun === true,
       vit: { hp: Math.max(20, num(v.vit?.hp, 100, 100)), food: num(v.vit?.food, 80, 100), water: num(v.vit?.water, 75, 100) }, tod: num(v.tod, SURV.startTime, 0.9999),
-      parts: num(v.parts, 0, 99), axeLvl: num(v.axeLvl, 0, 1), gunLvl: num(v.gunLvl, 0, 1), intro: v.intro === true, nightSeen: v.nightSeen === true, free: v.free === true, met: v.met === true, zstage: num(v.zstage, 0, 4), nights: num(v.nights, 0, 99), chapter2: readHouse12Progress(v.chapter2),
+      parts: num(v.parts, 0, 99), axeLvl: num(v.axeLvl, 0, 1), gunLvl: num(v.gunLvl, 0, 1), intro: v.intro === true, nightSeen: v.nightSeen === true, free: v.free === true, met: v.met === true, zstage: num(v.zstage, 0, 4), nights: num(v.nights, 0, 99), chapter2: readHouse12Progress(v.chapter2), season: readSeasonProgress(v.season),
     };
   } catch { return structuredClone(FRESH); }
 }
@@ -75,16 +78,24 @@ async function boot() {
   dog.place({ x: START.x + 0.4, z: START.z - 2.2 });
   const noCine = (window as unknown as { __noCine?: boolean }).__noCine === true;
   let st = loadSave();
-  const spawn = st.free && st.chapter2 >= HOUSE12.entrance ? ENTRANCE : START;
-  if (spawn === ENTRANCE) { player.pos = { ...ENTRANCE }; player.yaw = 0; dog.place({ x: ENTRANCE.x, z: ENTRANCE.z - 2.7 }); }
+  const seasonActive = () => st.free && st.chapter2 === HOUSE12.answered;
+  const spawn = seasonActive() ? seasonCheckpoint(st.season) : st.free && st.chapter2 >= HOUSE12.entrance ? ENTRANCE : START;
+  if (spawn !== START) {
+    player.pos = { ...spawn }; player.yaw = 0;
+    dog.place({ x: spawn.x - 0.35, z: spawn.z + 0.8 }, world.boxes);
+  }
   let found = [...st.found];
   const startBtn = $<HTMLButtonElement>('start');
   const [homes, makePerson] = await Promise.all([
     buildHomes(world.scene, world.boxes, ballistics, (k) => { startBtn.textContent = `ЗАГРУЗКА ${Math.round(k * 100)}%`; }),
     loadPeople(),
   ]);
-  const apartments = await buildApartments(world.scene, world.boxes, ballistics);
+  const [apartments, seasonWorld] = await Promise.all([
+    buildApartments(world.scene, world.boxes, ballistics),
+    buildSeasonWorld(world.scene, world.boxes, ballistics),
+  ]);
   apartments.setProgress(st.chapter2);
+  seasonWorld.setProgress(st.season);
   const places = await buildPlaces(world.scene, world.boxes, world.lootSites, ballistics);
   const hero = new HeroBody(makePerson('josh'));
   world.scene.add(hero.root);
@@ -115,8 +126,8 @@ async function boot() {
   zoya.play('idle');
   world.scene.add(zoya.root);
   world.boxes.push({ minX: -7.65, maxX: -7.15, minZ: 9.35, maxZ: 9.85 });
-  const spots: Spot[] = [...homes.spots, ...places.spots, ...apartments.spots, { id: 'talk:zoya', kind: 'talk', room: 'A', at: { x: -7.4, z: 9.6 }, title: 'Тётя Зоя', text: '', mesh: null }];
-  startBtn.textContent = 'ИГРАТЬ';
+  const spots: Spot[] = [...homes.spots, ...places.spots, ...apartments.spots, ...seasonWorld.spots, { id: 'talk:zoya', kind: 'talk', room: 'A', at: { x: -7.4, z: 9.6 }, title: 'Тётя Зоя', text: '', mesh: null }];
+  startBtn.textContent = st.intro || st.free ? 'ПРОДОЛЖИТЬ' : 'ИГРАТЬ';
   startBtn.disabled = false;
   HOMES.filter((h) => revealed(st, h.id)).forEach((h) => homes.reveal(h.id));
   st.taken.forEach((id) => homes.hideItem(id));
@@ -212,6 +223,7 @@ async function boot() {
   };
   const card = (title: string, text: string, kind: 'note' | 'memory', voice?: string, photo?: string) => {
     $('pipeChoices').hidden = true;
+    $('seasonChoices').hidden = true;
     const img = $<HTMLImageElement>('cardImg');
     img.style.display = photo ? 'block' : 'none';
     if (photo) img.src = photoCanvas(photo).toDataURL('image/jpeg', 0.85);
@@ -240,9 +252,9 @@ async function boot() {
     sound.start();
     sound.preloadVoices(input.touch ? ['h_intro1', 'h_intro2', 'h_wall'] : Object.keys(VOICE_DUR));
     if (input.touch) { void document.documentElement.requestFullscreen?.().then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape')).catch(() => {}); }
-    if (!st.intro && !noCine) { st.intro = true; input.lock(); playIntro(); return; }
+    if (!st.intro && !st.free && !noCine) { st.intro = true; input.lock(); playIntro(); return; }
     setMode('play');
-    if (playT === 0) toast(spawn === ENTRANCE ? 'Ты снова у дома 12.' : 'Ты не помнишь, кто ты.', 3.5);
+    if (playT === 0) toast(seasonActive() ? seasonObjective(st.season) : spawn === ENTRANCE ? 'Ты снова у дома 12.' : 'Ты не помнишь, кто ты.', 3.5);
   };
   $('start').onclick = startGame;
   $('reset').onclick = () => { save(structuredClone(FRESH)); location.reload(); };
@@ -265,10 +277,42 @@ async function boot() {
   };
   $('bLight').onclick = () => input.press('KeyF');
   $('bAct').onclick = () => input.press('KeyE');
-  const openMap = () => {
-    drawNotebook($<HTMLCanvasElement>('mapCanvas'), { player: player.pos, dog: dog.pos, goal: currentGoal, free: st.free });
-    setMode('map');
+  let mapDistrict = false;
+  const yardHomes = HOMES.map((home) => {
+    const door = homes.door(home.id);
+    const z = Math.sign(door.z) * 8;
+    return {
+      name: `Дом ${home.num}`, door, at: { x: door.x, z },
+      box: { minX: door.x - 5, maxX: door.x + 5, minZ: z - 5, maxZ: z + 5 },
+    };
+  });
+  const mapFootprints = [...world.footprints, ...seasonWorld.footprints, ...yardHomes.map((h) => h.box),
+    { minX: APARTMENTS.x - 9, maxX: APARTMENTS.x + 9, minZ: APARTMENTS.z - 6, maxZ: APARTMENTS.z + 6 }];
+  const drawMap = () => {
+    const landmarks = [...yardHomes];
+    const other = st.free ? [
+      { name: 'Дом 12', at: APARTMENTS, door: ENTRANCE },
+      { name: 'Мастерская', at: WORKSHOP, door: WORKSHOP_ENTRY },
+      { name: 'Депо', at: DEPOT, door: DEPOT_ENTRY },
+      { name: 'Диспетчерская', at: DISPATCH, door: DISPATCH_ENTRY },
+    ] : [];
+    const target = seasonActive() ? seasonTarget(st.season) : null;
+    const goal = target ? SEASON_POINTS[target] : st.free && !seasonActive()
+      ? (apartments.target(st.chapter2)?.at ?? currentGoal)
+      : currentGoal;
+    drawNotebook($<HTMLCanvasElement>('mapCanvas'), {
+      player: player.pos, forward: player.forward(), dog: dog.pos, goal, free: st.free,
+      district: mapDistrict, footprints: mapFootprints, landmarks: [...landmarks, ...other],
+    });
+    $('mapScale').textContent = mapDistrict ? 'Приблизить' : 'Показать путь';
+    $('mapGoal').textContent = seasonActive() ? seasonObjective(st.season) : goalText;
   };
+  const openMap = () => {
+    mapDistrict = false;
+    setMode('map');
+    drawMap();
+  };
+  $('mapScale').onclick = () => { mapDistrict = !mapDistrict; drawMap(); };
   $('bMap').onclick = openMap;
   $('mapOk').onclick = () => setMode('play');
   $('bSwap').onclick = () => input.press('KeyX');
@@ -283,13 +327,21 @@ async function boot() {
   holdBtn('bHand', 'held:hand'); holdBtn('bFire', 'held:fire'); holdBtn('bBino', 'KeyV');
   canvas.addEventListener('click', () => { if (mode === 'play') input.lock(); });
   document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && mode === 'play' && !input.touch) setMode('pause'); });
-  document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'play') setMode('pause'); });
+  const persistOnExit = () => {
+    if (mode !== 'menu') save({ ...st, ammo: arms.ammo, axe: arms.hasAxe, gun: arms.hasGun });
+  };
+  addEventListener('pagehide', persistOnExit);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) return;
+    persistOnExit();
+    if (mode === 'play') setMode('pause');
+  });
   document.addEventListener('pointerdown', () => { if (mode !== 'menu') sound.start(); });
 
   // ───────── Сценки ─────────
   const run = (shots: Shot[], after: () => void) => { setMode('cine'); cine.play(shots, () => { setMode('play'); after(); }); };
   const updateHouse12 = (step: number) => {
-    checkpoint = ENTRANCE;
+    checkpoint = step === HOUSE12.answered ? seasonCheckpoint(st.season) : ENTRANCE;
     apartments.setProgress(step);
     commit({ chapter2: step });
   };
@@ -319,6 +371,38 @@ async function boot() {
   }
   const ZP: Vec2 = { x: -7.4, z: 9.6 }; // тётя Зоя стоит у себя на кухне
   const ZDOOR = homes.door('zoya');
+  const porchBoots = new THREE.Group();
+  const bootLeather = new THREE.MeshLambertMaterial({ color: 0x43392e });
+  const bootSole = new THREE.MeshLambertMaterial({ color: 0x29261f });
+  for (const [x, size] of [[-.66, 1], [.47, .72]]) {
+    for (const side of [-1, 1]) {
+      const boot = new THREE.Group();
+      boot.position.set(x + side * .105 * size, .035, .46);
+      boot.rotation.y = side * .12;
+      boot.scale.setScalar(size);
+      const sole = new THREE.Mesh(new THREE.BoxGeometry(.13, .034, .28), bootSole);
+      const toe = new THREE.Mesh(new THREE.BoxGeometry(.123, .084, .26), bootLeather);
+      toe.position.y = .043;
+      const shaft = new THREE.Mesh(new THREE.BoxGeometry(.113, .16, .137), bootLeather);
+      shaft.position.set(0, .116, -.052);
+      boot.add(sole, toe, shaft);
+      porchBoots.add(boot);
+    }
+  }
+  porchBoots.position.set(ZDOOR.x, 0, ZDOOR.z);
+  porchBoots.visible = seasonActive() && st.season.step === 'complete';
+  world.scene.add(porchBoots);
+  const addressList = new THREE.Mesh(new THREE.PlaneGeometry(.26, .36), new THREE.MeshLambertMaterial({ map: canvasTex(64, 88, (g) => {
+    g.fillStyle = '#d7c399'; g.fillRect(0, 0, 64, 88);
+    g.fillStyle = '#735644'; g.fillRect(24, 2, 17, 6);
+    g.font = '10px monospace';
+    ['12 - 6', '19 - 3', '26 - 4', '44 - 2'].forEach((n, i) => g.fillText(n, 8, 22 + 16 * i));
+    g.fillStyle = '#667850'; g.fillText('✓', 47, 22); g.fillText('✓', 47, 54);
+  }) }));
+  // Указатель на двери появляется после развязки только при публичной передаче.
+  addressList.position.set(-1.25, 1.45, -.14);
+  addressList.visible = st.season.decision === 'addresses';
+  porchBoots.add(addressList);
   const zoyaHome = () => { zoya.root.position.set(ZP.x, 0.05, ZP.z); zoya.root.rotation.y = 0; };
   zoyaHome();
   const playIntro = () => {
@@ -404,14 +488,127 @@ async function boot() {
     card(m.title, m.text, 'memory');
   };
 
+  const chooseSeason = (title: string, text: string, options: readonly (readonly [label: string, event: SeasonEvent | null, response: string])[]) => {
+    card(title, text, 'memory');
+    const list = $('seasonChoices');
+    list.replaceChildren();
+    list.hidden = false;
+    for (const [label, event, response] of options) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.onclick = () => {
+        if (mode !== 'card' || list.hidden) return;
+        if (event === 'addresses' || event === 'signal') sound.knock([.09, .32, 1.01], true);
+        else sound.click();
+        if (event && changeSeason(event)) {
+          card(title, response, 'memory');
+        } else {
+          $('cardText').textContent = response;
+        }
+      };
+      list.append(button);
+    }
+  };
+  function changeSeason(event: SeasonEvent) {
+    const next = advanceSeason(st.season, event);
+    if (next === st.season) return false;
+    seasonWorld.setProgress(next);
+    porchBoots.visible = next.step === 'complete';
+    addressList.visible = next.decision === 'addresses';
+    checkpoint = seasonCheckpoint(next);
+    commit({ season: next });
+    return true;
+  }
+  const finishSeason = () => {
+    const sentAddresses = st.season.decision === 'addresses';
+    const close = () => card('Сезон 2 пройден', sentAddresses
+      ? 'Костя вернулся домой. К рассвету на двери Зои уже висел список адресов, которые отозвались в эфире. Возле двух номеров кто-то поставил галочки.'
+      : 'Костя вернулся домой. В эфир ушёл условный стук. Утром Зоя оставила дверь приоткрытой и поставила у батареи лишнюю пару тапок.', 'memory');
+    if (st.season.step === 'complete') { close(); return; }
+    changeSeason('delivery');
+    st.tod = .31;
+    commit({});
+    const p = SEASON_POINTS.delivery;
+    run([
+      { dur: 3.9, from: [ZDOOR.x + 2.65, 1.62, ZDOOR.z + 5.65], to: [ZDOOR.x + 1.55, 1.6, ZDOOR.z + 4.78],
+        look: [ZDOOR.x - .34, 1.20, ZDOOR.z + .8], title: 'ВО ДВОРЕ СНОВА УТРО',
+        hero: { at: p, toward: ZDOOR }, text: 'На крыльце сохнут две пары ботинок. На маленьких ещё не высохла глина из депо.',
+        on: () => { zoya.root.position.set(ZDOOR.x, .05, ZDOOR.z - .2); zoya.root.rotation.y = Math.atan2(p.x - ZDOOR.x, p.z - ZDOOR.z + .2); sound.knock([.35, .58, 1.26], true); } },
+      { dur: 5.1, from: [ZDOOR.x + .56, 1.68, ZDOOR.z + 1.38], to: [ZDOOR.x + .32, 1.62, ZDOOR.z + 1.14],
+        look: [ZDOOR.x, 1.53, ZDOOR.z - .2],
+        text: 'Зоя: «Лида его нашла. Он первым делом спросил, где Тузик. Ты заходи, чайник ещё тёплый».' },
+    ], () => { zoyaHome(); close(); });
+  };
+  const useSeason = (id: SeasonSpot) => {
+    const progress = st.season;
+    if (!canUseSeasonSpot(progress, id)) return;
+    switch (id) {
+      case 'order':
+        changeSeason('work-order');
+        card('Квитанция из мастерской', 'Лида. Заказ № 2619. «Сначала домой, за Костей. Если двор уже пустой — ждать в автобусе. Водитель в курсе». На обороте мастер обвёл аккумулятор. Рядом приписка: «Хватит на одну линию».', 'note');
+        break;
+      case 'battery':
+        chooseSeason('Один аккумулятор', 'Один провод идёт к лампе над шкафом, другой — к старому приёмнику. Мастер оставил подсказки для обоих случаев.', [
+          ['Подать питание на лампу', 'lamp', 'За стеной щёлкнула лампа. В подсобке теперь видно открытый шкаф.'],
+          ['Включить приёмник', 'radio', 'Из динамика пошли помехи. На шкале дрогнула стрелка — этот приёмник ещё ловит эфир.'],
+        ]);
+        break;
+      case 'cabinet':
+        changeSeason('lamp-log');
+        card('Записка в шкафу', '«Лида, водитель забрал твою сумку, поставил у третьего сиденья. Костин билет внутри. Автобус № 12 стоит в депо». Под запиской — пропуск со следом от собачьего зуба.', 'note');
+        break;
+      case 'receiver':
+        changeSeason('radio-log');
+        sound.cassette();
+        card('Запись с приёмника', 'После шороха кто-то говорит: «Лида? Я отогнал двенадцатый в депо. Сумку оставил у третьего сиденья». На заднем плане — два коротких удара и один после паузы.', 'memory');
+        break;
+      case 'ticket':
+        if (changeSeason('ticket')) {
+          sound.pickup();
+          card('Билет № 12', 'На сиденье лежит шарф Лиды. Под ним — билет на двоих. Тузик нюхает шарф и скребёт решётку конторы. Под решёткой зажат ремешок этой же сумки. Ты вытягиваешь ремешок, засов с лязгом падает.', 'note');
+        } else {
+          card('Билет № 12', 'Билет на двоих проездом через дом № 12. В графе «багаж» водитель пририсовал собачью лапу.', 'note');
+        }
+        break;
+      case 'office':
+        changeSeason('dispatch-key');
+        card('Контора депо', 'Утренние рейсы перечёркнуты. У последнего стоит отметка «круг через дом 12». Рядом с ключом от диспетчерской записка: «Если пассажиры потеряются, зови по той же линии, что номер рейса».', 'note');
+        break;
+      case 'ledger':
+        changeSeason('ledger');
+        card('Журнал рейсов', 'У Лиды два билета, а в списке только её имя. Она приписала рядом «Костя, дом 12». На соседних страницах — другие дома, те же выскобленные строчки. Слева на полях сохранилось: «Последний рейс — линия 12».', 'note');
+        break;
+      case 'relay':
+        chooseSeason('Коммутатор', 'На панели три гнезда. В журнале указана линия, по которой диспетчер вызывал пассажиров последнего рейса.', [
+          ['Линия 3', null, 'Отвечает пустая ремонтная бригада. Нужный номер остался в журнале рейсов.'],
+          ['Линия 12', 'line-12', 'Зазвонил телефон. Лида: «Я нашла его шарф. Если Костя на связи, дай наш стук. Я заберу его от двери».'],
+          ['Линия 26', null, 'В динамике только ветер. Номер заказа мастера и номер линии — разные числа.'],
+        ]);
+        break;
+      case 'mic':
+        chooseSeason('Микрофон', 'Костя ждёт условного стука. В журнале ещё есть адреса других жильцов. Микрофон ловит каждый звук. Что передать?', [
+          ['Дать стук и прочитать адреса', 'addresses', 'Костя ответил первым. Потом в эфире отозвался ещё один голос и переспросил свой номер дома. Зоя ждёт во дворе.'],
+          ['Дать условный стук для семьи', 'signal', 'Костя повторил стук. Лида ответила: «Я у двери. Можешь открывать». Возвращайся во двор к Зое.'],
+        ]);
+        break;
+      case 'delivery':
+        finishSeason();
+        break;
+    }
+  };
+
   /** Что рядом и перед глазами: записка, вещь, припасы или стёртая дверь. */
   const spotNear = (): Spot | null => {
     const f = player.forward();
+    const nextSeasonSpot = seasonActive() ? seasonTarget(st.season) : null;
     let best: Spot | null = null, bd = 1.9;
     for (const s of spots) {
       if (Math.abs((s.elevation ?? 0) - player.floor) > 0.42) continue;
       const house12Spot = s.id.startsWith('chapter2:');
       if (house12Spot && (!st.free || !house12SpotVisible(s.id, st.chapter2))) continue;
+      const seasonSpot = s.kind === 'season';
+      if (seasonSpot && (!seasonActive() || !canUseSeasonSpot(st.season, s.id as SeasonSpot))) continue;
       if (s.home && s.room === 'B' && !revealed(st, s.home)) continue;
       if (s.kind === 'item' && st.taken.includes(s.id)) continue;
       if (s.kind === 'loot' && st.loot.includes(s.id)) continue;
@@ -419,12 +616,15 @@ async function boot() {
       if (s.kind === 'bed' && !(revealed(st, s.home!) && isNight(st.tod) && !siege)) continue;
       const dx = s.at.x - player.pos.x, dz = s.at.z - player.pos.z;
       const d = Math.hypot(dx, dz);
-      if (d < bd && (d < 0.6 || (dx * f.x + dz * f.z) / d > 0.35)) {
-        if (house12Spot) {
+      const primary = s.id === nextSeasonSpot;
+      if (d < (primary ? 1.9 : bd) && (d < 0.6 || (dx * f.x + dz * f.z) / d > 0.35)) {
+        if (house12Spot || seasonSpot) {
           // Стол, на котором лежит предмет, не мешает взять его. Стены и стёртая дверь перекрывают взаимодействие.
           const sight = apartments.collision(player.pos, player.floor).filter((b) => s.at.x < b.minX || s.at.x > b.maxX || s.at.z < b.minZ || s.at.z > b.maxZ);
           if (!clearWalk(player.pos, s.at, 0, sight)) continue;
         }
+        // Текущая цель важнее соседней улики, которую уже прочитали.
+        if (primary) return s;
         bd = d; best = s;
       }
     }
@@ -439,6 +639,7 @@ async function boot() {
   };
   const VERB: Record<string, string> = { bowl: 'поставить миску у порога', key: 'открыть ключом', bino: 'посмотреть в глазок через бинокль', metro: 'завести метроном' };
   const spotLabel = (s: Spot): string => {
+    if (s.kind === 'season') return s.id === 'delivery' && st.season.step === 'complete' ? 'прочитать запись о втором сезоне' : SPOT_ACTION[s.id as SeasonSpot];
     if (s.kind === 'note') return `${s.photo ? 'посмотреть' : 'прочитать'}: ${s.title.toLowerCase()}`;
     if (s.kind === 'tape') return 'взять кассету';
     if (s.kind === 'deck') return st.chapter2 === HOUSE12.tape ? 'вставить кассету' : 'осмотреть магнитофон';
@@ -460,6 +661,7 @@ async function boot() {
     card(h.memory.title, h.memory.text, 'memory', `m_${home}`);
   };
   const useSpot = (s: Spot) => {
+    if (s.kind === 'season') { useSeason(s.id as SeasonSpot); return; }
     if (s.kind === 'note') {
       sound.click();
       if (s.id === HOUSE12_ID.ledger && st.chapter2 < HOUSE12.ledger) updateHouse12(HOUSE12.ledger);
@@ -594,7 +796,7 @@ async function boot() {
       player.update(dt, input, look, apartments.collision(player.pos, player.floor), world.half, false, apartments.height);
       const fwd = player.forward();
       const inApartments = apartments.inside(player.pos);
-      const indoors = inApartments || homes.inside(player.pos) !== null || places.inside(player.pos);
+      const indoors = inApartments || homes.inside(player.pos) !== null || places.inside(player.pos) || seasonWorld.inside(player.pos);
       if (st.free && st.chapter2 === HOUSE12.street && Math.hypot(player.pos.x - ENTRANCE.x, player.pos.z - ENTRANCE.z) < 3.6) {
         updateHouse12(HOUSE12.entrance);
         if (!noCine) run([
@@ -613,7 +815,9 @@ async function boot() {
       // Пёс ведёт по запаху: сначала двор (к двери нужного дома), потом находки на улицах.
       const yardHome = !st.met || (allFound() && !st.free) ? 'zoya' : yardGoal(st);
       let goal: Vec2 | null = yardHome ? homes.door(yardHome) : null;
-      if (st.free && st.chapter2 < HOUSE12.answered) goal = inApartments ? null : ENTRANCE;
+      const nextSeasonSpot = seasonActive() ? seasonTarget(st.season) : null;
+      if (seasonActive()) goal = nextSeasonSpot ? SEASON_POINTS[nextSeasonSpot] : null;
+      else if (st.free) goal = inApartments ? null : ENTRANCE;
       else if (goal && homes.inside(player.pos) === yardHome) goal = null;
       else if (!yardHome) goal = memories.filter((m) => !m.found).sort((a, b) => Math.hypot(a.at.x - player.pos.x, a.at.z - player.pos.z) - Math.hypot(b.at.x - player.pos.x, b.at.z - player.pos.z))[0]?.at ?? null;
       currentGoal = goal;
@@ -686,7 +890,9 @@ async function boot() {
       else if (st.vit.hp <= 0) die('ТЕБЯ НЕ СТАЛО', tick.damage ? 'Копии не устают. Ночью лучше переждать в доме — или найти, чем отбиваться.' : 'Без еды и воды долго не протянуть. Ищи припасы в домах и в магазине.');
 
       near = player.floor > 0.5 ? null : memories.find((m) => !m.found && Math.hypot(m.at.x - player.pos.x, m.at.z - player.pos.z) < 2.2) ?? null;
-      spot = near ? null : spotNear();
+      spot = spotNear();
+      if (spot?.kind === 'season') near = null;
+      else if (near) spot = null;
       if (input.hit('KeyE') && !cine.active) {
         if (near) pick(near);
         else if (spot) useSpot(spot);
@@ -694,8 +900,8 @@ async function boot() {
       }
       zoom = st.hold === 'bino' && input.zoom;
 
-      if (playT > 4 && playT - dt <= 4) toast(input.touch ? 'Зажми ✋ — посмотри на ладонь.' : 'Зажми Q — посмотри на ладонь.', 4.5);
-      if (playT > 10 && playT - dt <= 10) toast('Тузик что-то чует. Иди за ним.', 5);
+      if (!st.free && playT > 4 && playT - dt <= 4) toast(input.touch ? 'Зажми ✋ — посмотри на ладонь.' : 'Зажми Q — посмотри на ладонь.', 4.5);
+      if (!st.free && playT > 10 && playT - dt <= 10) toast('Тузик что-то чует. Иди за ним.', 5);
       saveT += dt;
       if (saveT > 5) { saveT = 0; commit({}); }
     } else {
@@ -717,7 +923,7 @@ async function boot() {
     if (Math.abs(player.camera.fov - fov) > 0.1) { player.camera.fov += (fov - player.camera.fov) * Math.min(1, dt * 14); player.camera.updateProjectionMatrix(); }
     // Цель — одной строкой сверху.
     const holdIt = st.hold ? itemOf(st.hold) : null, nextHome = yardGoal(st);
-    const goalNow = st.free ? house12Objective(st.chapter2, apartments.inside(player.pos))
+    const goalNow = seasonActive() ? seasonObjective(st.season) : st.free ? house12Objective(st.chapter2, apartments.inside(player.pos))
       : siege ? 'Продержись до рассвета'
         : !st.met ? 'Иди за Тузиком: во втором доме кто-то есть'
           : holdIt ? `Верни вещь хозяину: ${holdIt.name} → дом ${homeOf(holdIt.owner).num}`
@@ -730,7 +936,7 @@ async function boot() {
     $('prompt').style.display = label ? 'block' : 'none';
     $('promptText').textContent = label ? (input.touch ? label : `E — ${label}`) : '';
     $('bAct').style.display = label && input.touch ? 'flex' : 'none';
-    $('bAct').textContent = nearDog ? 'ГЛАДИТЬ' : near || spot?.kind === 'item' || spot?.kind === 'loot' || spot?.kind === 'tape' ? 'ВЗЯТЬ' : spot?.kind === 'note' ? 'ЧИТАТЬ' : spot?.kind === 'deck' ? 'ПЛЁНКА' : spot?.kind === 'pipe' ? 'СТУК' : 'ДВЕРЬ';
+    $('bAct').textContent = nearDog ? 'ГЛАДИТЬ' : near || spot?.kind === 'item' || spot?.kind === 'loot' || spot?.kind === 'tape' ? 'ВЗЯТЬ' : spot?.kind === 'note' ? 'ЧИТАТЬ' : spot?.kind === 'deck' ? 'ПЛЁНКА' : spot?.kind === 'pipe' ? 'СТУК' : spot?.kind === 'season' ? 'ДЕЙСТВИЕ' : 'ДВЕРЬ';
     if (flashT > 0) flashT = Math.max(0, flashT - dt * 1.2);
     $('flash').style.opacity = String(flashT);
     if (hitT > 0) hitT = Math.max(0, hitT - dt * 2);
@@ -754,6 +960,7 @@ async function boot() {
     cine.update(Math.min(0.25, raw));
     const cameraPosition = cine.active ? cine.cam.position : player.camera.position;
     world.update(t, cameraPosition);
+    seasonWorld.update(cameraPosition, high);
     homes.update(t);
     apartments.update(t, cameraPosition, high);
     ballistics.update(dt);
@@ -775,7 +982,7 @@ async function boot() {
 
   // Для проверок и отладки.
   (window as unknown as Record<string, unknown>).__game = {
-    player, hero, dog, world, shooter, homes, enemies, arms, apartments, ballistics,
+    player, hero, dog, world, shooter, homes, enemies, arms, apartments, ballistics, seasonWorld,
     get mode() { return mode; }, get pressure() { return pressure; }, get found() { return found; },
     get st() { return st; }, get spot() { return spot; },
     setTime(v: number) { st.tod = v; }, setVit(v: Partial<Vitals>) { st.vit = { ...st.vit, ...v }; },

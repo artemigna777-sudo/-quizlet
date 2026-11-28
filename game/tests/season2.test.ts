@@ -4,6 +4,7 @@ import { Dog } from '../src/dog';
 import { FACE_GLASS, facadeGlass } from '../src/facade';
 import { HOUSE12, HOUSE12_ID, house12SpotVisible, house12Target, readHouse12Progress } from '../src/house12';
 import { clearWalk, walkPath } from '../src/logic';
+import { advanceSeason, canUseSeasonSpot, DEPOT_ENTRY, DISPATCH_ENTRY, readSeasonProgress, seasonCheckpoint, seasonTarget, WORKSHOP_ENTRY, type PowerRoute, type SeasonDecision, type SeasonEvent } from '../src/season2';
 
 it('продолжает старое сохранение со стадии тетради и восстанавливает последующие стадии', () => {
   const readLedger = readHouse12Progress(2);
@@ -92,4 +93,43 @@ it('высота на лестнице растёт до третьего эта
   expect(up(3)).toBe(6);
   expect(down(6)).toBe(3);
   expect(down(3)).toBe(0);
+});
+
+describe('продолжение после дома 12', () => {
+  it('принимает старое сохранение и восстанавливает неполный выбор', () => {
+    const old = readSeasonProgress(undefined);
+    expect(seasonTarget(old)).toBe('order');
+    expect(seasonCheckpoint(old)).toEqual(WORKSHOP_ENTRY);
+    expect(advanceSeason(old, 'delivery')).toBe(old);
+    expect(readSeasonProgress({ step: 'clue' }).step).toBe('power');
+    expect(readSeasonProgress({ step: 'home', power: 'radio' }).step).toBe('call');
+  });
+
+  const paths = [
+    { power: 'lamp', target: 'cabinet', clue: 'lamp-log', wrongClue: 'radio-log', decision: 'addresses' },
+    { power: 'radio', target: 'receiver', clue: 'radio-log', wrongClue: 'lamp-log', decision: 'signal' },
+  ] as const satisfies readonly { power: PowerRoute; target: string; clue: SeasonEvent; wrongClue: SeasonEvent; decision: SeasonDecision }[];
+
+  it.each(paths)('проводит через $power до эпилога $decision с перезагрузкой', ({ power, target, clue, wrongClue, decision }) => {
+    const apply = (progress: ReturnType<typeof readSeasonProgress>, ...events: SeasonEvent[]) => events.reduce(advanceSeason, progress);
+    const clueStage = apply(readSeasonProgress(undefined), 'work-order', power);
+    expect(seasonTarget(clueStage)).toBe(target);
+    expect(canUseSeasonSpot(clueStage, 'ticket')).toBe(false);
+    expect(advanceSeason(clueStage, wrongClue)).toBe(clueStage);
+    const bus = apply(clueStage, clue);
+    expect(seasonCheckpoint(bus)).toEqual(DEPOT_ENTRY);
+    expect(canUseSeasonSpot(bus, power === 'lamp' ? 'cabinet' : 'receiver')).toBe(true);
+    expect(canUseSeasonSpot(bus, power === 'lamp' ? 'receiver' : 'cabinet')).toBe(false);
+    const office = apply(bus, 'ticket');
+    expect(advanceSeason(office, 'ticket')).toBe(office);
+    const relay = apply(office, 'dispatch-key', 'ledger');
+    expect(seasonCheckpoint(relay)).toEqual(DISPATCH_ENTRY);
+    const reload = readSeasonProgress(JSON.parse(JSON.stringify(relay)));
+    expect(seasonTarget(reload)).toBe('relay');
+    expect(advanceSeason(reload, decision)).toBe(reload);
+    const done = apply(reload, 'line-12', decision, 'delivery');
+    expect(seasonTarget(done)).toBeNull();
+    expect(readSeasonProgress(JSON.parse(JSON.stringify(done)))).toEqual({ step: 'complete', power, decision });
+    expect(advanceSeason(done, 'delivery')).toBe(done);
+  });
 });
