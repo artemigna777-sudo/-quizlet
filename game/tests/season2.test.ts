@@ -5,7 +5,7 @@ import { FACE_GLASS, facadeGlass } from '../src/facade';
 import { HOUSE12, HOUSE12_ID, house12SpotVisible, house12Target, readHouse12Progress } from '../src/house12';
 import { clearWalk, walkPath } from '../src/logic';
 import { advanceSeason, canUseSeasonSpot, DEPOT_ENTRY, DISPATCH_ENTRY, readSeasonProgress, seasonCheckpoint, seasonTarget, WORKSHOP_ENTRY, type PowerRoute, type SeasonDecision, type SeasonEvent } from '../src/season2';
-import { KNOCK_PATTERN, knockFits, radioInTune, radioStrength, RADIO_CHANNEL } from '../src/signal';
+import { KNOCK_PATTERN, knockFits, radioInTune, radioStrength, RADIO_CHANNEL, tapeFits } from '../src/signal';
 
 it('продолжает старое сохранение со стадии тетради и восстанавливает последующие стадии', () => {
   const readLedger = readHouse12Progress(2);
@@ -117,7 +117,11 @@ describe('продолжение после дома 12', () => {
     expect(seasonTarget(clueStage)).toBe(target);
     expect(canUseSeasonSpot(clueStage, 'ticket')).toBe(false);
     expect(advanceSeason(clueStage, wrongClue)).toBe(clueStage);
-    const bus = apply(clueStage, clue);
+    const splicing = apply(clueStage, clue);
+    expect(seasonTarget(splicing)).toBe('splice');
+    expect(advanceSeason(splicing, 'ticket')).toBe(splicing);
+    expect(seasonCheckpoint(readSeasonProgress(JSON.parse(JSON.stringify(splicing))))).toEqual(WORKSHOP_ENTRY);
+    const bus = apply(splicing, 'verify-tape');
     expect(seasonCheckpoint(bus)).toEqual(DEPOT_ENTRY);
     expect(canUseSeasonSpot(bus, power === 'lamp' ? 'cabinet' : 'receiver')).toBe(true);
     expect(canUseSeasonSpot(bus, power === 'lamp' ? 'receiver' : 'cabinet')).toBe(false);
@@ -128,11 +132,21 @@ describe('продолжение после дома 12', () => {
     const reload = readSeasonProgress(JSON.parse(JSON.stringify(relay)));
     expect(seasonTarget(reload)).toBe('relay');
     expect(advanceSeason(reload, decision)).toBe(reload);
-    const done = apply(reload, 'line-12', decision, 'delivery');
+    const signal = apply(reload, 'line-12', decision);
+    expect(seasonTarget(signal)).toBe('handoff');
+    expect(readSeasonProgress(JSON.parse(JSON.stringify(signal))).decision).toBe(decision);
+    expect(advanceSeason(signal, 'delivery')).toBe(signal);
+    const done = apply(signal, 'rendezvous', 'delivery');
     expect(seasonTarget(done)).toBeNull();
     expect(readSeasonProgress(JSON.parse(JSON.stringify(done)))).toEqual({ step: 'complete', power, decision });
     expect(advanceSeason(done, 'delivery')).toBe(done);
   });
+});
+
+it('собирает ленту от включения линии до ответа', () => {
+  expect(tapeFits(['click', 'knock', 'voice'])).toBe(true);
+  expect(tapeFits(['voice', 'knock', 'click'])).toBe(false);
+  expect(tapeFits(['click', 'knock', undefined])).toBe(false);
 });
 
 it('принимает ритм с разными интервалами и отклоняет три равных удара', () => {

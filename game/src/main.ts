@@ -12,6 +12,7 @@ import { HeroBody } from './hero';
 import { buildHomes, type Spot } from './homes';
 import { HOUSE12, HOUSE12_ID, TAPE_LINE, house12Objective, house12SpotVisible, readHouse12Progress } from './house12';
 import { Input } from './input';
+import { Instruments } from './instruments';
 import { clearWalk, stepErasure } from './logic';
 import { animateMemories, buildMemories, type Memory } from './memories';
 import { drawNotebook } from './notebook';
@@ -21,8 +22,8 @@ import { photoCanvas } from './photos';
 import { Player } from './player';
 import { Shooter } from './shooter';
 import { buildSeasonWorld } from './season2-world';
-import { advanceSeason, canUseSeasonSpot, readSeasonProgress, WORKSHOP, WORKSHOP_ENTRY, DEPOT, DEPOT_ENTRY, DISPATCH, DISPATCH_ENTRY, seasonCheckpoint, seasonObjective, seasonTarget, SPOT_ACTION, SEASON_POINTS, type SeasonEvent, type SeasonProgress, type SeasonSpot } from './season2';
-import { KNOCK_PATTERN, KNOCK_WINDOWS, TAP_TIMEOUT, knockFits, radioInTune, radioStrength, RADIO_LOCK_MS } from './signal';
+import { advanceSeason, canUseSeasonSpot, readSeasonProgress, WORKSHOP, WORKSHOP_ENTRY, DEPOT, DEPOT_ENTRY, DISPATCH, DISPATCH_ENTRY, seasonCheckpoint, seasonObjective, seasonTarget, SPOT_ACTION, SEASON_POINTS, type PowerRoute, type SeasonDecision, type SeasonEvent, type SeasonProgress, type SeasonSpot } from './season2';
+import { KNOCK_PATTERN } from './signal';
 import { HOMES, canReveal, canTake, homeOf, itemOf, memId, revealed, yardGoal, type YardState } from './story';
 import { SURV, advanceClock, clockText, daylight, drink, eat, grayOf, hurt, isNight, stepVitals, type Vitals } from './survival';
 import { VOICE_DUR } from './voicedur';
@@ -32,7 +33,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const REPLAY_KEY = `${CFG.saveKey}:season2-replay`;
 const replaying = new URLSearchParams(location.search).get('replay') === '2';
 const saveKey = replaying ? REPLAY_KEY : CFG.saveKey;
-type Mode = 'menu' | 'play' | 'card' | 'erased' | 'pause' | 'peek' | 'cine' | 'map' | 'climb';
+type Mode = 'menu' | 'play' | 'card' | 'erased' | 'pause' | 'peek' | 'cine' | 'map' | 'climb' | 'instrument' | 'scare';
 interface Save extends YardState { loot: string[]; food: number; water: number; ammo: number; axe: boolean; gun: boolean; vit: Vitals; tod: number; parts: number; axeLvl: number; gunLvl: number; intro: boolean; nightSeen: boolean; free: boolean; met: boolean; zstage: number; nights: number; chapter2: number; season: SeasonProgress }
 const FRESH: Save = { found: [], taken: [], hold: null, loot: [], food: 0, water: 0, ammo: 0, axe: false, gun: false, vit: { hp: 100, food: 80, water: 75 }, tod: SURV.startTime, parts: 0, axeLvl: 0, gunLvl: 0, intro: false, nightSeen: false, free: false, met: false, zstage: 0, nights: 0, chapter2: 0, season: readSeasonProgress(null) };
 
@@ -180,6 +181,8 @@ async function boot() {
   let growlT = 0;
   let loudT = 0;
   let depotScared = false;
+  let depotCue = 0;
+  let fearShot: { enemy: ReturnType<Enemies['startle']>; from: Vec2; to: Vec2; time: number; light: THREE.PointLight } | null = null;
   let drops = 0;
   let edgeT = -99;
   let heartT = 0;
@@ -239,18 +242,8 @@ async function boot() {
     document.body.classList.toggle('two', arms.hasAxe && arms.hasGun);
     document.body.classList.toggle('bino', st.hold === 'bino');
   };
-  let knockAttempt: { taps: number[]; done: () => void } | null = null;
-  let tuning: { entered: number | null; done: () => void } | null = null;
-  const closeInstruments = () => {
-    if (tuning) sound.radio(null);
-    knockAttempt = null;
-    tuning = null;
-    $('knocker').hidden = true;
-    $('tuner').hidden = true;
-    $('cardOk').textContent = 'ДАЛЬШЕ';
-  };
+  const instruments = new Instruments(sound, () => { sound.say(null); setMode('play'); });
   const card = (title: string, text: string, kind: 'note' | 'memory', voice?: string, photo?: string) => {
-    closeInstruments();
     $('seasonChoices').hidden = true;
     const img = $<HTMLImageElement>('cardImg');
     img.style.display = photo ? 'block' : 'none';
@@ -263,17 +256,20 @@ async function boot() {
     setMode('card');
   };
   const setMode = (m: Mode) => {
+    if (mode === 'instrument' && m !== 'instrument') instruments.close();
     mode = m;
     document.body.classList.toggle('cine', m === 'cine');
+    document.body.classList.toggle('scaring', m === 'scare');
+    show('instruments', m === 'instrument');
     show('menu', m === 'menu'); show('card', m === 'card'); show('erased', m === 'erased'); show('pause', m === 'pause'); show('map', m === 'map');
-    if (m === 'play') input.lock(); else if (m !== 'peek' && m !== 'cine' && m !== 'climb') document.exitPointerLock?.();
+    if (m === 'play') input.lock(); else if (m !== 'peek' && m !== 'cine' && m !== 'climb' && m !== 'scare') document.exitPointerLock?.();
   };
   $('help').textContent = input.touch
     ? 'Слева — идти, справа — смотреть. Держи телефон горизонтально.'
     : 'WASD — идти, мышь — смотреть, Shift — бежать, M — блокнот, F — фонарик, Q — ладонь, E — действие, ЛКМ или пробел — удар, X — сменить оружие, 1 — поесть, 2 — попить, Esc — пауза.';
   const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || (navigator as unknown as { standalone?: boolean }).standalone === true;
   if (input.touch && !standalone && /iPhone|iPad|iPod/.test(navigator.userAgent)) $('ios').style.display = 'block';
-  $('reset').style.display = found.length || st.taken.length || st.loot.length ? 'block' : 'none';
+  $('reset').style.display = replaying || found.length || st.taken.length || st.loot.length ? 'block' : 'none';
   $('replayLabel').hidden = !replaying;
   $('replaySeason').hidden = !replaying && !st.free;
   $('replaySeason').textContent = replaying ? 'Основное сохранение' : 'Переиграть сезон 2';
@@ -308,7 +304,6 @@ async function boot() {
     setMode('menu');
   };
   $('cardOk').onclick = () => {
-    closeInstruments();
     sound.say(null);
     setMode('play');
     if (!st.free && found.length >= memories.length + HOMES.length) toast('Во всех окнах двора горит свет. Зоя зовёт.', 7);
@@ -381,10 +376,9 @@ async function boot() {
   };
   addEventListener('pagehide', persistOnExit);
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { if (tuning) readDial(); return; }
+    instruments.visibility(!document.hidden);
+    if (!document.hidden) return;
     persistOnExit();
-    if (knockAttempt) knockAttempt.taps.length = 0;
-    if (tuning) { tuning.entered = null; sound.radio(null); }
     if (mode === 'play') setMode('pause');
   });
   document.addEventListener('pointerdown', () => { if (mode !== 'menu') sound.start(); });
@@ -404,71 +398,9 @@ async function boot() {
       { dur: 2.0, from: [door.x, 7.60, door.z + 2.15], to: [door.x, 7.60, door.z + 0.75], look: [door.x, 7.2, door.z - 1.4], on: () => { updateHouse12(HOUSE12.room); sound.knock([0.05], true); } },
     ], () => toast('Комната вернулась. На столике возле окна остался конверт.', 5));
   };
-  const openKnocker = (title: string, description: string, done: () => void) => {
-    card(title, description, 'memory');
-    knockAttempt = { taps: [], done };
-    $('knocker').hidden = false;
-    $('knockInfo').textContent = 'Первый удар запускает шкалу.';
-    $('cardOk').textContent = 'ОТОЙТИ';
-  };
-  $('knockTap').onclick = () => {
-    const attempt = knockAttempt;
-    if (!attempt || mode !== 'card') return;
-    sound.knock([0]);
-    const now = performance.now(), count = attempt.taps.length;
-    if (count && !knockFits(count - 1, now - attempt.taps[count - 1])) {
-      attempt.taps.length = 0;
-      $('knockInfo').textContent = 'Ритм сбился. Начни с первого удара.';
-      return;
-    }
-    attempt.taps.push(now);
-    if (attempt.taps.length === 3) { attempt.done(); return; }
-    $('knockInfo').textContent = count ? '2 из 3. Теперь выдержи паузу.' : '1 из 3. Следующий удар — быстро.';
-  };
-  $('knockDemo').onclick = () => {
-    if (!knockAttempt) return;
-    knockAttempt.taps.length = 0;
-    $('knockInfo').textContent = 'Слушай два быстрых удара и третий после паузы.';
-    sound.knock(KNOCK_PATTERN, true);
-  };
-  const openTuner = (done: () => void) => {
-    card('Приёмник', 'Поворачивай ручку. Когда шум стихнет, удерживай частоту, пока не проявится голос.', 'memory');
-    sound.cassette();
-    const dial = $<HTMLInputElement>('radioDial');
-    dial.value = '10';
-    tuning = { entered: null, done };
-    $('tuner').hidden = false;
-    $('cardOk').textContent = 'ОТОЙТИ';
-    readDial();
-  };
-  const readDial = () => {
-    if (!tuning) return;
-    const channel = Number($<HTMLInputElement>('radioDial').value);
-    $('radioFreq').textContent = channel.toFixed(1).replace('.', ',');
-    if (radioInTune(channel)) tuning.entered ??= performance.now();
-    else tuning.entered = null;
-    const strength = radioStrength(channel), percent = Math.round(strength * 100);
-    sound.radio(strength);
-    $('radioMeter').style.setProperty('--level', `${percent}%`);
-    $('radioMeter').setAttribute('aria-valuenow', String(percent));
-    $('radioInfo').textContent = tuning.entered !== null ? 'Есть голос. Удерживай частоту.' : strength > .1 ? 'Слышны обрывки слов.' : 'Только шум.';
-  };
-  $('radioDial').oninput = readDial;
-  const updateInstruments = (now: number) => {
-    if (knockAttempt) {
-      const taps = knockAttempt.taps;
-      const meter = $('knockMeter');
-      const band = KNOCK_WINDOWS[taps.length - 1];
-      const gap = band ? now - taps[taps.length - 1] : 0;
-      meter.style.setProperty('--level', `${Math.min(1, gap / TAP_TIMEOUT) * 100}%`);
-      meter.style.setProperty('--band-start', `${band ? band[0] / TAP_TIMEOUT * 100 : 0}%`);
-      meter.style.setProperty('--band-width', `${band ? (band[1] - band[0]) / TAP_TIMEOUT * 100 : 0}%`);
-      if (band && gap > TAP_TIMEOUT) {
-        taps.length = 0;
-        $('knockInfo').textContent = 'Труба стихла. Попробуй снова.';
-      }
-    }
-    if (tuning?.entered != null && now - tuning.entered >= RADIO_LOCK_MS) tuning.done();
+  const openKnocker = (title: string, hint: string, done: () => void) => {
+    setMode('instrument');
+    instruments.openKnock(title, hint, done);
   };
   const ZP: Vec2 = { x: -7.4, z: 9.6 }; // тётя Зоя стоит у себя на кухне
   const ZDOOR = homes.door('zoya');
@@ -589,7 +521,7 @@ async function boot() {
     card(m.title, m.text, 'memory');
   };
 
-  const chooseSeason = (title: string, text: string, options: readonly (readonly [label: string, event: SeasonEvent | null, response: string])[]) => {
+  const chooseSeason = (title: string, text: string, options: readonly (readonly [label: string, event: PowerRoute | SeasonDecision, response: string])[]) => {
     card(title, text, 'memory');
     const list = $('seasonChoices');
     list.replaceChildren();
@@ -605,12 +537,7 @@ async function boot() {
           openKnocker('Микрофон', 'Линия открыта. Передай семейный ритм в эфир.', () => {
             if (changeSeason(event)) card(title, response, 'memory');
           });
-        } else if (event && changeSeason(event)) {
-          card(title, response, 'memory', event === 'line-12' ? 's2_line' : undefined);
-        } else {
-          $('cardText').textContent = response;
-          if (event === null && label === 'Линия 3') sound.say('s2_duplicate');
-        }
+        } else if (changeSeason(event)) card(title, response, 'memory');
       };
       list.append(button);
     }
@@ -628,8 +555,8 @@ async function boot() {
   const finishSeason = () => {
     const sentAddresses = st.season.decision === 'addresses';
     const close = () => card('Сезон 2 пройден', sentAddresses
-      ? 'Костя вернулся домой. На двери Зои висит список адресов. У двух номеров стоят галочки. На обороте кто-то вписал адрес радиомастерской. Почерк Лиды. Она говорит, что листа даже не видела.'
-      : 'Костя вернулся домой. Зоя оставила дверь приоткрытой и поставила у батареи лишнюю пару тапок. Лида унесла батарейки из приёмника. Когда она закрыла калитку, из динамика донёсся один удар.', 'memory');
+      ? 'Лида увела Костю. Зоя встречала у калитки тех, кто отозвался на адреса. Напротив двух квартир она поставила галочки. У третьей лежит ключ, завёрнутый в квитанцию из мастерской. На квитанции сегодняшнее число. Мастерскую опечатали вчера.'
+      : 'Лида увела Костю. Зоя приготовила ему тапочки, а незачёркнутые адреса спрятала в кухонный ящик. Поздно вечером кто-то подошёл к калитке и повторил семейный стук. Костя из кухни спросил: «А кому ты ещё его показал?»', 'memory');
     if (st.season.step === 'complete') { close(); return; }
     changeSeason('delivery');
     st.tod = .31;
@@ -642,9 +569,9 @@ async function boot() {
         on: () => { zoya.root.position.set(ZDOOR.x, .05, ZDOOR.z - .2); zoya.root.rotation.y = Math.atan2(p.x - ZDOOR.x, p.z - ZDOOR.z + .2); sound.knock([.35, .58, 1.26], true); } },
       { dur: 5.1, from: [ZDOOR.x + .56, 1.68, ZDOOR.z + 1.38], to: [ZDOOR.x + .32, 1.62, ZDOOR.z + 1.14],
         look: [ZDOOR.x, 1.53, ZDOOR.z - .2], voice: 'z_end1', text: 'Зоя: «Рассвело. Живые. Дай хоть посмотрю на тебя».' },
-      { dur: 5.2, from: [ZDOOR.x + 1.62, 1.22, ZDOOR.z + 3.1], to: [ZDOOR.x + .94, 1.15, ZDOOR.z + 2.65],
-        look: [ZDOOR.x + .35, .52, ZDOOR.z + .42], voice: 's2_home',
-        text: 'Лида по рации: «Костя нашёлся. Он спрашивает, выйдет ли Тузик к нему утром. Скажи ему, что выйдет».' },
+      { dur: 4.1, from: [ZDOOR.x + 1.62, 1.22, ZDOOR.z + 3.1], to: [ZDOOR.x + .94, 1.15, ZDOOR.z + 2.65],
+        look: [ZDOOR.x + .35, .52, ZDOOR.z + .42],
+        text: sentAddresses ? 'За калиткой скрипнула тележка. Кто-то всё-таки дошёл по названному адресу.' : 'Зоя задвинула засов и поставила чайник. Тузик ещё долго смотрел на пустую калитку.' },
     ], () => { zoyaHome(); close(); });
   };
   const useSeason = (id: SeasonSpot) => {
@@ -653,7 +580,7 @@ async function boot() {
     switch (id) {
       case 'order':
         changeSeason('work-order');
-        card('Квитанция из мастерской', 'Лида. Заказ № 2619. «Сначала домой, за Костей. Если двор уже пустой — ждать в автобусе». Время приёма — 07:40. Ниже расписался Костя. В 07:40 Лида ещё ждала его у школы. Она дважды подчеркнула время.', 'note');
+        card('Квитанция из мастерской', 'Заказ № 2619. «Если вернёшься раньше меня, держись автобуса. Возьми Тузика. Дверь открывай только на наш стук. Мама». Под запиской — подпись Кости. Он всегда писал К наоборот. Здесь буква выведена правильно.', 'note');
         break;
       case 'battery':
         chooseSeason('Один аккумулятор', 'Один провод идёт к лампе над шкафом, другой — к старому приёмнику. Мастер оставил подсказки для обоих случаев.', [
@@ -663,50 +590,146 @@ async function boot() {
         break;
       case 'cabinet':
         changeSeason('lamp-log');
-        card('Два талона на один голос', '«На первой записи мальчик стучит, на второй мать отвечает. Лента шла одновременно». Под катушками талон водителя. «Автобус № 12 в депо. Сумку Лиды оставил у третьего сиденья». На ленте — след от собачьего зуба.', 'note');
+        card('Разрезанная катушка', 'Мастер выписал моменты проверки: включил линию; дождался стука; получил ответ. Кто-то разрезал ленту между фрагментами и положил их в другом порядке. На обороте одной полоски — номер последнего автобуса. Катушки лежат на монтажном столе.', 'note');
         break;
       case 'receiver': {
         const listen = () => {
           changeSeason('radio-log');
           sound.cassette();
-          card('Запись с приёмника', 'Лида: «Это Лида. Если ты на двенадцатой, не называй адрес. Я слышу наш стук, но никто ещё не подошёл к трубе».\n\nНа кожухе приёмника приклеен талон: «Автобус 12. Депо. Сумка у третьего сиденья».', 'memory', 's2_web');
+          card('Запись с приёмника', 'Лида: «Это Лида. Если ты на двенадцатой, не называй адрес. Я слышу наш стук, но никто ещё не подошёл к трубе».\n\nПрежде чем пустить запись в эфир, мастер разрезал свою контрольную ленту. Она на монтажном столе.', 'memory', 's2_web');
         };
-        if (progress.step === 'clue') openTuner(listen);
+        if (progress.step === 'clue') { setMode('instrument'); instruments.openRadio(listen); }
         else listen();
+        break;
+      }
+      case 'splice': {
+        const play = () => {
+          const first = changeSeason('verify-tape');
+          card('Контрольная лента', 'На дорожке «приём» — щелчок и стук. На дорожке «ответ» — голос, записанный при вынутом штекере. В конце слышно, как водитель кричит из окна: «Двенадцатый! До депо!» На коробке мастер написал: «Если ребёнок в автобусе, почему ему всё ещё звонят домой?»', 'memory');
+          if (first) sound.say('s2_duplicate', undefined, .85);
+        };
+        if (progress.step === 'splice') { setMode('instrument'); instruments.openTape(play); }
+        else play();
         break;
       }
       case 'ticket':
         if (changeSeason('ticket')) {
           sound.pickup();
-          card('Билет № 12', 'На билете двое взрослых. Поверх второго слова детской рукой написано «КОСТЯ». В окне напротив отражается пассажир, хотя сиденье пустое. Тузик смотрит вперёд, на кабину. За решёткой конторы падает засов.', 'note');
+          card('Билет № 12', 'Рядом с шарфом Лиды два билета. На втором корявая «К» смотрит в другую сторону. Тузик достал из-под сиденья детскую варежку. Тут в кабине кто-то дважды стукнул. Тузик застыл и смотрит в проход.', 'note');
         } else {
           card('Билет № 12', 'Билет на двоих проездом через дом № 12. В графе «багаж» водитель пририсовал собачью лапу.', 'note');
         }
         break;
       case 'office':
         changeSeason('dispatch-key');
-        card('Контора депо', 'Утренние рейсы перечёркнуты. У последнего стоит отметка «круг через дом 12». Рядом с ключом от диспетчерской записка: «Если пассажиры потеряются, зови по той же линии, что номер рейса».', 'note');
+        card('Путевой лист', '«Приёмная велела считать по голосам. Записал двоих. Проверил салон: один ребёнок. Попросил сказать, где мама. Мальчик показал на диспетчерскую, а в динамике ответили: “Дома”». Под листом ключ. Водитель оставил мальчику открытым запасной выход.', 'note');
         break;
       case 'ledger':
         changeSeason('ledger');
-        card('Журнал рейсов', 'У Лиды два билета, а в списке только её имя. «Костя, дом 12» вписано её рукой. На соседней странице тот же почерк. Там перечислены чужие квартиры. Всё зачёркнуто, кроме пометки «Последний рейс — линия 12».', 'note');
+        card('Журнал рейсов', 'На линии 03 дежурный записывал адреса, на 26 передавали заявки из мастерской. Линию 12 слушали только пассажиры. Лида зачеркнула фамилии и оставила адреса: «Если нас опять перепутают, пусть каждый сам решит, куда выйти». Под страницей отпечатался номер дома, в котором мальчик больше не живёт.', 'note');
         break;
       case 'relay':
-        chooseSeason('Коммутатор', 'На панели три гнезда. В журнале указана линия, по которой диспетчер вызывал пассажиров последнего рейса.', [
-          ['Линия 3', null, 'Диспетчерская. Назовите, пожалуйста, ваш адрес. Я уже знаю вашу улицу.'],
-          ['Линия 12', 'line-12', 'Лида: «Сначала я услышала собственный голос. Он называл квартиру за квартирой. Я не успела сказать Косте, чтобы он молчал. Дай ему наш стук. Только стук».'],
-          ['Линия 26', null, 'В динамике только ветер. Номер заказа мастера и номер линии — разные числа.'],
-        ]);
+        setMode('instrument');
+        instruments.openRelay((line) => {
+          if (line === 12) {
+            changeSeason('line-12');
+            card('В трубке Лида', '«Сначала я услышала собственный голос. Он называл квартиру за квартирой. Я не успела сказать Косте, чтобы он молчал. Дай ему наш стук. Только стук».', 'memory', 's2_line');
+          } else if (line === 3) {
+            instruments.message('«Назовите ваш адрес. Я уже знаю вашу улицу». Этот голос уже был на контрольной ленте.');
+            sound.say('s2_duplicate');
+          } else {
+            instruments.message('Линия мастерской. Слышно пустой динамик.');
+            sound.cassette();
+          }
+        });
         break;
       case 'mic':
-        chooseSeason('Микрофон', 'Костя ждёт условного стука. В журнале ещё есть адреса других жильцов. Микрофон ловит каждый звук. Что передать?', [
-          ['Дать стук и прочитать адреса', 'addresses', 'Костя ответил первым. Потом в эфире отозвался ещё один голос и переспросил свой номер дома. Зоя ждёт во дворе.'],
-          ['Дать условный стук для семьи', 'signal', 'Костя повторил стук. Лида ответила: «Я у двери. Можешь открывать». Возвращайся во двор к Зое.'],
+        chooseSeason('Микрофон', 'Можно дать стук только Косте. Другие пассажиры всё ещё ждут, куда им идти. Если прочитать оставленные Лидой адреса, их услышит каждый, кто сидит на линии.', [
+          ['Дать стук и прочитать адреса', 'addresses', 'Мальчик ответил одним ударом. Из соседней трубки спросили: «Дом двенадцать, это мне?» Тузик рвётся к запасному выходу.'],
+          ['Дать условный стук для семьи', 'signal', 'В трубке ответили знакомым ритмом. Потом стало слышно, как плачет ребёнок. Тузик тянет к запасному выходу.'],
         ]);
         break;
+      case 'handoff': {
+        const p = SEASON_POINTS.handoff;
+        const shared = progress.decision === 'addresses';
+        if (changeSeason('rendezvous')) run([
+          { dur: 3.8, from: [p.x + .22, 1.48, p.z + 2.55], to: [p.x - .16, 1.40, p.z + 1.30], look: [p.x + .15, .83, p.z - .42],
+            text: 'На скамейке вторая варежка. На обеих вышита та же «К» задом наперёд. За перегородкой тихо стукнули.',
+            on: () => sound.knock([.40, .63, 1.27], true) },
+          { dur: 5.4, from: [p.x - .09, 1.37, p.z + 1.17], to: [p.x + .21, 1.35, p.z + .95], look: [p.x - .35, .62, p.z - .58],
+            text: 'Лида по рации: «Костя нашёлся. Он спрашивает, выйдет ли Тузик к нему утром. Скажи ему, что выйдет».', voice: 's2_home' },
+        ], () => card('Защёлка открылась', shared ? 'Лида ждёт у дальнего двора. Два человека уже пошли на названные адреса. Зоя оставила свет на крыльце, чтобы они нашли дорогу.' : 'Лида увела Костю через запасной выход. Список остался в твоём блокноте. В доме Зои ещё горит свет.', 'memory'));
+        break;
+      }
       case 'delivery':
         finishSeason();
         break;
+    }
+  };
+
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const stingerFace = new THREE.Vector3();
+  const approachClown = (dt: number, fwd: Vec2) => {
+    if (depotScared || !seasonActive() || st.season.step !== 'office') {
+      if (depotCue) { depotCue = 0; sound.quietRoom(false); }
+      return false;
+    }
+    const p = player.pos;
+    const nearTicket = Math.abs(p.x - (DEPOT.x - 4)) < 1.18 && p.z > -6.2 && p.z < -.05;
+    if (player.floor > .4 || !nearTicket) {
+      if (depotCue) { depotCue = 0; sound.quietRoom(false); }
+      return false;
+    }
+    if (!depotCue) {
+      sound.quietRoom(true);
+      sound.knock([.28, .51], true);
+    }
+    depotCue += dt;
+    if (depotCue < 1.48) return false;
+    const front = { x: DEPOT.x - 4, z: Math.max(-7.77, p.z - 3.3) };
+    const distance = Math.hypot(p.x - front.x, p.z - front.z);
+    const looking = ((front.x - p.x) * fwd.x + (front.z - p.z) * fwd.z) / Math.max(.01, distance) > .58;
+    if (distance < 1.45 || !clearWalk(p, front, .12, world.boxes)) return false;
+    if (!looking && depotCue < 3.8) return false;
+    depotScared = true;
+    depotCue = 0;
+    const enemy = enemies.startle(front);
+    sound.scareImpact();
+    if (!looking) { sound.quietRoom(false); return false; }
+    const distanceAfter = Math.max(1.48, distance - 1.45);
+    const end = { x: p.x + (front.x - p.x) * distanceAfter / distance, z: p.z + (front.z - p.z) * distanceAfter / distance };
+    const light = new THREE.PointLight(0xe0c6a5, 9, 4.1);
+    light.position.set(p.x + .25, 1.81, p.z - .47);
+    world.scene.add(light);
+    enemy.mesh.rotation.y = Math.atan2(p.x - front.x, p.z - front.z);
+    enemy.actor.play('scream', { speed: 2.25, fade: 0 });
+    enemy.actor.update(.14);
+    fearShot = { enemy, from: front, to: end, time: 0, light };
+    setMode('scare');
+    return true;
+  };
+
+  const updateScare = (dt: number) => {
+    if (!fearShot) return;
+    const { enemy, from, to, light } = fearShot;
+    fearShot.time += dt;
+    const k = Math.min(1, fearShot.time / .22), drift = 1 - (1 - k) ** 3;
+    enemy.pos = { x: THREE.MathUtils.lerp(from.x, to.x, drift), z: THREE.MathUtils.lerp(from.z, to.z, drift) };
+    enemy.mesh.position.set(enemy.pos.x, 0, enemy.pos.z);
+    enemy.actor.update(dt);
+    const head = enemy.mesh.getObjectByName('mixamorigHead');
+    if (head) head.getWorldPosition(stingerFace);
+    else stingerFace.set(enemy.pos.x, 1.78, enemy.pos.z);
+    stingerFace.y += .095;
+    player.camera.lookAt(stingerFace);
+    if (!reduceMotion.matches) player.camera.rotateZ(Math.sin(fearShot.time * 30) * .034 * (1 - Math.min(1, fearShot.time / .52)));
+    if (fearShot.time >= .55) {
+      light.removeFromParent();
+      fearShot = null;
+      sound.quietRoom(false);
+      enemy.scream = .38;
+      enemy.cool = .60;
+      setMode('play');
     }
   };
 
@@ -886,8 +909,8 @@ async function boot() {
     requestAnimationFrame(frame);
     if (document.hidden) { clock.getDelta(); nextFrameAt = 0; return; }
     const portrait = input.touch && innerHeight > innerWidth;
-    if (!portrait && mode === 'card') updateInstruments(now);
-    const activeView = !portrait && (mode === 'play' || mode === 'cine' || mode === 'peek' || mode === 'climb');
+    if (!portrait && mode === 'instrument') instruments.update(now);
+    const activeView = !portrait && (mode === 'play' || mode === 'cine' || mode === 'peek' || mode === 'climb' || mode === 'scare');
     const interval = activeView ? (input.touch ? 1000 / 30 : 0) : 1000 / 12;
     if (interval > 0 && now + 0.8 < nextFrameAt) return;
     nextFrameAt = interval > 0 && now - nextFrameAt < interval ? nextFrameAt + interval : now + interval;
@@ -985,11 +1008,7 @@ async function boot() {
       else if (ev === 'empty') { sound.dry(); if (arms.hasAxe) { arms.cur = 'axe'; hud(); } toast('Патроны кончились.', 2.5); }
 
       // Ночные копии.
-      if (!depotScared && tenseSeason && st.season.step === 'office' && Math.hypot(player.pos.x - SEASON_POINTS.ticket.x, player.pos.z - SEASON_POINTS.ticket.z) < 2.3) {
-        depotScared = true;
-        enemies.startle({ x: DEPOT.x - 4, z: DEPOT.z - 7.36 });
-        sound.scream();
-      }
+      if (approachClown(raw, fwd)) return;
       const tick = player.floor > 0.5 ? { damage: 0, screamed: false, near: false, died: [] } : enemies.update(dt, { t, player: player.pos, fwd, running: input.run && player.moving, flash: player.flashlightOn, night, indoors, dog: dog.pos, boxes: world.boxes, nooks: world.nooks, area: st.free ? null : AREA, siege: !!siege, season: tenseSeason, loud: tenseSeason && loudT > 0 });
       if (tick.damage) { st.vit = hurt(st.vit, tick.damage); hitT = 1; sound.pain(); }
       if (tick.screamed) sound.scream();
@@ -1047,6 +1066,7 @@ async function boot() {
       near = null;
       spot = null;
       climbTarget = null;
+      if (mode === 'scare') updateScare(Math.min(.18, raw));
       if (mode === 'climb' && climbing) {
         const { target, from, floor } = climbing;
         climbing.elapsed += raw;
@@ -1075,7 +1095,10 @@ async function boot() {
       }
     }
     if (input.hit('KeyM')) { if (mode === 'play') openMap(); else if (mode === 'map') setMode('play'); }
-    if (input.hit('Escape') && mode === 'play') setMode('pause');
+    if (input.hit('Escape')) {
+      if (mode === 'play') setMode('pause');
+      else if (mode === 'instrument') { sound.say(null); setMode('play'); }
+    }
 
     // Интерфейс.
     const fov = zoom ? 20 : 70;
@@ -1103,7 +1126,8 @@ async function boot() {
     const p = mode === 'erased' ? 1 : pressure;
     const gray = Math.max(p, mode === 'erased' ? 1 : grayOf(st.vit.hp));
     $('static').style.opacity = String(Math.pow(p, 1.3) * 0.9);
-    canvas.style.filter = gray > 0.01 ? `grayscale(${gray.toFixed(2)}) brightness(${(1 - gray * 0.25).toFixed(2)})` : '';
+    const busExposure = depotCue ? 1 - .44 * Math.min(1, depotCue / .46) : mode === 'scare' ? .81 : 1;
+    canvas.style.filter = gray > .01 || busExposure < 1 ? `grayscale(${gray.toFixed(2)}) brightness(${((1 - gray * .25) * busExposure).toFixed(2)})` : '';
     $('vig').style.opacity = String(0.55 + gray * 0.45);
     $('erase').style.opacity = p > 0.03 ? '1' : '0';
     $('eraseBar').style.width = `${Math.round(p * 100)}%`;

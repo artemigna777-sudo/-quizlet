@@ -3,6 +3,7 @@ const JOBS = {
   echo: { model: 'b.fbx', tex: 1024, ratio: 0.3, clips: [['idle', 'anim/Breathing Idle.fbx'], ['stand', 'anim/Rifle Idle.fbx'], ['walk', 'anim/Walking.fbx', 1], ['stumble', 'anim/Zombie Stumbling.fbx', 1], ['run', 'anim/Zombie Run.fbx', 1], ['attack', 'anim/Standing Melee Attack Horizontal.fbx', 1], ['hit', 'anim/Zombie Reaction Hit.fbx', 1], ['die', 'anim/Dying.fbx'], ['scream', 'anim/Zombie Scream.fbx', 1]] },
   zoya: { model: 'a.fbx', tex: 512, ratio: 0.35, clips: [['idle', 'anim/Breathing Idle.fbx'], ['walk', 'anim/Walking 2.fbx', 1], ['hit', 'anim/Hit Reaction.fbx', 1]] },
   josh: { model: 'Josh.fbx', tex: 768, ratio: 0.4, clips: [['idle', 'anim/Breathing Idle.fbx', 1], ['walk', 'anim/Walking 2.fbx', 1]] },
+  whiteclown: { model: 'whiteclown.fbx', tex: 768, ratio: 0.55, clips: [] },
 };
 (async () => {
   const names = process.argv.length > 2 ? process.argv.slice(2) : ['echo', 'zoya'];

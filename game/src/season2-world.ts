@@ -10,8 +10,8 @@ import { WORKSHOP, DEPOT, DISPATCH, SEASON_POINTS, type SeasonProgress, type Sea
 
 const TITLES: Record<SeasonSpot, string> = {
   order: 'Квитанция из мастерской', battery: 'Один аккумулятор', cabinet: 'Шкаф мастера',
-  receiver: 'Приёмник', ticket: 'Билет № 12', office: 'Контора депо',
-  ledger: 'Последний рейс', relay: 'Коммутатор', mic: 'Микрофон', delivery: 'Возвращение во двор',
+  receiver: 'Приёмник', splice: 'Монтажный стол', ticket: 'Билет № 12', office: 'Контора депо',
+  ledger: 'Последний рейс', relay: 'Коммутатор', mic: 'Микрофон', handoff: 'Запасной выход', delivery: 'Возвращение во двор',
 };
 
 export async function buildSeasonWorld(scene: THREE.Scene, boxes: Box[], ballistics: Ballistics) {
@@ -30,6 +30,13 @@ export async function buildSeasonWorld(scene: THREE.Scene, boxes: Box[], ballist
   const floor = paint('#6e6862', '#58524f', true);
   const cream = paint('#b0a587', '#7b725e');
   const blue = paint('#657b85', '#485c67');
+  const knit = lambert({ map: canvasTex(48, 48, (g) => {
+    g.fillStyle = '#566a80'; g.fillRect(0, 0, 48, 48);
+    g.fillStyle = '#687e92';
+    for (let y = 0; y < 48; y += 3) for (let x = y % 2; x < 48; x += 3) g.fillRect(x, y, 1, 2);
+    g.translate(48, 0); g.scale(-1, 1);
+    g.fillStyle = '#d8c7ab'; g.font = 'bold 23px monospace'; g.fillText('К', 16, 33);
+  }) });
   const corrugated = paint('#48524e', '#35403e');
   const yellow = paint('#bd9951', '#9b743e');
   const asphalt = lambert({ color: 0x555450 });
@@ -180,7 +187,10 @@ export async function buildSeasonWorld(scene: THREE.Scene, boxes: Box[], ballist
     w.prop('wooden_crate_02', 2.5, -6.8, 0, .2);
     w.prop('wooden_crate_02', 3.0, -6.82, .43, -.12, .73);
     w.prop('small_wooden_table_01', 3.06, .65);
-    const recorder = w.prop('cassette_player', 3.06, .65, models.get('small_wooden_table_01')!.size.y, Math.PI, .82);
+    const recorderHeight = models.get('small_wooden_table_01')!.size.y;
+    shown.splice = w.prop('cassette_player', 3.06, .65, recorderHeight, Math.PI, .82);
+    for (let i = 0; i < 3; i++) w.box(2.80 + .17 * i, recorderHeight + .018, .91, .15, .008, .033, yellow);
+    const recorder = w.prop('boombox', 6.38, -6.18, .99, 0, .64);
     w.prop('clipboard', 4.63, -6.25, .84, .31, .86);
     w.prop('handsaw_wood', -6.84, -3.11, .84, -.63, .66);
     w.sign('РЕМОНТ · ПРИЁМКА', -5.48, 2.05, -8.92, 3.25, '#555246');
@@ -201,7 +211,7 @@ export async function buildSeasonWorld(scene: THREE.Scene, boxes: Box[], ballist
     w.box(2.77, 1.50, -5.59, .31, .43, .089, iron);
     workshopSpots.push(
       { id: 'workshop:bench', kind: 'bench', room: 'A', at: { x: WORKSHOP.x + 4.75, z: WORKSHOP.z - 3.3 }, title: 'Верстак радиомастера', text: '', mesh: null },
-      { id: 'workshop:tape', kind: 'note', room: 'A', at: { x: WORKSHOP.x + 3.06, z: WORKSHOP.z + .65 }, title: 'Контрольная запись', text: 'На корпусе надпись «Не перематывать». После щелчка — знакомый голос. «Диспетчерская. Назовите, пожалуйста, ваш адрес. Я уже знаю вашу улицу».\n\nДата на плёнке на день раньше приёмного талона.', mesh: recorder },
+      { id: 'workshop:tape', kind: 'note', room: 'A', at: { x: WORKSHOP.x + 6.38, z: WORKSHOP.z - 6.18 }, title: 'Контрольная запись', text: 'На корпусе надпись «Не перематывать». После щелчка — знакомый голос. «Диспетчерская. Назовите, пожалуйста, ваш адрес. Я уже знаю вашу улицу».\n\nДата на плёнке на день раньше приёмного талона.', mesh: recorder },
       { id: 'workshop:log', kind: 'note', room: 'A', at: { x: WORKSHOP.x + 4.63, z: WORKSHOP.z - 6.25 }, title: 'Журнал ремонта', text: 'Заказ 2619. Проверка канала 12,6. Первая запись сделана при отключённом микрофоне. Слышно, как ставят на стол чашку. Чашку мастер нашёл там только утром.', mesh: null },
     );
     w.box(3.9, 2.83, -5.6, .80, .18, .60, iron);
@@ -265,6 +275,9 @@ export async function buildSeasonWorld(scene: THREE.Scene, boxes: Box[], ballist
     d.box(busX - .81, .625, -2.783, .46, .05, .26, cloth);
     d.box(busX - .58, .514, -2.685, .09, .24, .09, cloth);
     d.paper('ticket', .17, cream);
+    d.box(busX + .15, .16, -2.82, .22, .018, .11, yellow);
+    d.box(busX - .49, .153, -2.81, .19, .025, .105, knit);
+    d.box(busX - .53, .153, -2.75, .061, .025, .036, blue);
     d.finish();
   }
 
@@ -302,6 +315,15 @@ export async function buildSeasonWorld(scene: THREE.Scene, boxes: Box[], ballist
     s.box(-1.3, 5.75, -6.4, 2.5, .09, .095, iron);
     s.box(-1.3, 6.42, -6.4, .22, .17, .23, glow, false, broadcast);
     s.sign('ЛИНИЯ РЕЙСОВ', 4.6, 1.92, -2.28, 2.4);
+    s.room(7.55, 8.22, 4.6, 3.1, 7.55, green, 2.58);
+    s.sign('ЗАПАСНОЙ ВЫХОД', 7.55, 2.32, 9.89, 2.4);
+    s.box(7.55, .46, 7.43, 2.15, .12, .39, cream, true);
+    for (const x of [6.65, 8.44]) s.box(x, .24, 7.43, .1, .4, .32, iron);
+    s.box(8.64, 1.63, 6.85, .33, 1.04, .21, cloth);
+    s.box(8.64, 2.28, 6.88, .52, .075, .19, glow, false, broadcast);
+    s.box(7.18, .54, 7.40, .19, .025, .105, knit);
+    s.box(7.16, .54, 7.34, .06, .025, .036, blue);
+    s.paper('handoff', .51);
     s.finish();
   }
 
@@ -317,10 +339,10 @@ export async function buildSeasonWorld(scene: THREE.Scene, boxes: Box[], ballist
     else if (!closed && index >= 0) boxes.splice(index, 1);
   };
   const setProgress = (step: SeasonProgress) => {
-    const missingTicket = ['arrival', 'power', 'clue', 'bus'].includes(step.step);
+    const missingTicket = ['arrival', 'power', 'clue', 'splice', 'bus'].includes(step.step);
     barrier(gate, lockedGate, missingTicket);
     barrier(dispatchDoor, dispatchLock, missingTicket || step.step === 'office');
-    broadcast.visible = step.step === 'home' || step.step === 'complete';
+    broadcast.visible = step.step === 'handoff' || step.step === 'home' || step.step === 'complete';
     lamp.visible = step.power === 'lamp';
     radio.visible = step.power === 'radio';
   };

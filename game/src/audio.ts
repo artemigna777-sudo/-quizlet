@@ -6,6 +6,7 @@ export class Sound {
   private noise!: GainNode;
   private noiseBuffer!: AudioBuffer;
   private drone!: GainNode;
+  private roomTone = 1;
   enabled = true;
 
   /** Запускается по первому касанию: так требуют браузеры. */
@@ -48,9 +49,10 @@ export class Sound {
   /** Давление стирания: мир глохнет, помехи громче. */
   setPressure(p: number) {
     if (!this.ctx) return;
-    this.world.gain.value = this.enabled ? 1 - p * 0.92 : 0;
+    this.world.gain.value = this.enabled ? (1 - p * 0.92) * this.roomTone : 0;
     this.noise.gain.value = this.enabled ? p * p * 0.22 : 0;
   }
+  quietRoom(on: boolean) { this.roomTone = on ? .16 : 1; }
 
   /** Ночью — низкий гул; чем ближе опасность, тем он громче. */
   setNight(k: number) { if (this.ctx) this.drone.gain.setTargetAtTime(this.enabled ? k * 0.2 : 0, this.ctx.currentTime, 0.8); }
@@ -128,7 +130,7 @@ export class Sound {
   }
 
   /** Один аудиоконтекст открывается касанием; сцена узнаёт о фактическом конце реплики. */
-  say(id: string | null, onEnd?: () => void) {
+  say(id: string | null, onEnd?: () => void, delay = 0) {
     const request = ++this.voiceRequest;
     if (this.voice) { this.voice.onended = null; this.voice.stop(); this.voice.disconnect(); this.voice = null; }
     const ctx = this.ctx;
@@ -143,7 +145,7 @@ export class Sound {
         if (this.voice === source) this.voice = null;
         onEnd?.();
       };
-      source.start();
+      source.start(ctx.currentTime + delay);
       this.voice = source;
     }).catch(() => { if (request === this.voiceRequest) onEnd?.(); });
   }
@@ -187,6 +189,21 @@ export class Sound {
   thud() { this.tone(140, 50, 0.14, 0.4, 'square'); }
   pain() { this.tone(110, 60, 0.3, 0.35, 'sawtooth', this.master); }
   scream() { this.tone(900, 1900, 0.9, 0.5, 'sawtooth', this.master); this.tone(1340, 2300, 0.9, 0.3, 'square', this.master); }
+  scareImpact() {
+    const ctx = this.ctx;
+    if (!ctx || !this.enabled) return;
+    this.tone(132, 46, .22, .40, 'triangle', this.master);
+    this.tone(710, 116, .13, .19, 'sawtooth', this.master);
+    const hit = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
+    hit.buffer = this.noiseBuffer;
+    filter.type = 'bandpass'; filter.frequency.value = 850; filter.Q.value = .75;
+    gain.gain.setValueAtTime(.40, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .24);
+    hit.connect(filter).connect(gain).connect(this.master);
+    hit.onended = () => { hit.disconnect(); filter.disconnect(); gain.disconnect(); };
+    hit.start();
+    hit.stop(ctx.currentTime + .27);
+  }
   growl() { this.tone(95, 70, 0.6, 0.3, 'sawtooth'); }
   gulp() { this.tone(240, 160, 0.12, 0.2); setTimeout(() => this.tone(220, 150, 0.12, 0.2), 180); }
   dissolve() { this.tone(2400, 300, 0.5, 0.12, 'sawtooth'); }

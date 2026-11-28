@@ -8,7 +8,7 @@ export const WORKSHOP_ENTRY = { x: 69, z: -32.5 };
 export const DEPOT_ENTRY = { x: 67.5, z: 11.8 };
 export const DISPATCH_ENTRY = { x: 72, z: 41 };
 
-export type SeasonStep = 'arrival' | 'power' | 'clue' | 'bus' | 'office' | 'register' | 'relay' | 'call' | 'home' | 'complete';
+export type SeasonStep = 'arrival' | 'power' | 'clue' | 'splice' | 'bus' | 'office' | 'register' | 'relay' | 'call' | 'handoff' | 'home' | 'complete';
 export type PowerRoute = 'lamp' | 'radio';
 export type SeasonDecision = 'addresses' | 'signal';
 export interface SeasonProgress {
@@ -16,18 +16,20 @@ export interface SeasonProgress {
   power: PowerRoute | null;
   decision: SeasonDecision | null;
 }
-export type SeasonEvent = 'work-order' | 'lamp' | 'radio' | 'lamp-log' | 'radio-log' | 'ticket' | 'dispatch-key' | 'ledger' | 'line-12' | 'addresses' | 'signal' | 'delivery';
+export type SeasonEvent = 'work-order' | 'lamp' | 'radio' | 'lamp-log' | 'radio-log' | 'verify-tape' | 'ticket' | 'dispatch-key' | 'ledger' | 'line-12' | 'addresses' | 'signal' | 'rendezvous' | 'delivery';
 
 type Stage = { next: Readonly<Partial<Record<SeasonEvent, SeasonStep>>>; title: string };
 const STAGES: Record<SeasonStep, Stage> = {
   arrival: { next: { 'work-order': 'power' }, title: 'Глава 3 · Радиомастерская' },
   power: { next: { lamp: 'clue', radio: 'clue' }, title: 'Глава 3 · Радиомастерская' },
-  clue: { next: { 'lamp-log': 'bus', 'radio-log': 'bus' }, title: 'Глава 3 · Радиомастерская' },
+  clue: { next: { 'lamp-log': 'splice', 'radio-log': 'splice' }, title: 'Глава 3 · Радиомастерская' },
+  splice: { next: { 'verify-tape': 'bus' }, title: 'Глава 3 · Радиомастерская' },
   bus: { next: { ticket: 'office' }, title: 'Глава 4 · Последний рейс' },
   office: { next: { 'dispatch-key': 'register' }, title: 'Глава 4 · Последний рейс' },
   register: { next: { ledger: 'relay' }, title: 'Глава 5 · Возвращение' },
   relay: { next: { 'line-12': 'call' }, title: 'Глава 5 · Возвращение' },
-  call: { next: { addresses: 'home', signal: 'home' }, title: 'Глава 5 · Возвращение' },
+  call: { next: { addresses: 'handoff', signal: 'handoff' }, title: 'Глава 5 · Возвращение' },
+  handoff: { next: { rendezvous: 'home' }, title: 'Глава 5 · Возвращение' },
   home: { next: { delivery: 'complete' }, title: 'Глава 5 · Возвращение' },
   complete: { next: {}, title: 'Сезон 2 пройден' },
 };
@@ -38,9 +40,10 @@ export function readSeasonProgress(raw: unknown): SeasonProgress {
   const power = s.power === 'lamp' || s.power === 'radio' ? s.power : null;
   const decision = s.decision === 'addresses' || s.decision === 'signal' ? s.decision : null;
   const step = s.step && Object.hasOwn(STAGES, s.step) ? s.step : 'arrival';
-  if ((step === 'home' || step === 'complete') && !decision) return { step: 'call', power, decision };
-  if (step === 'clue' && !power) return { step: 'power', power, decision: null };
-  return { step, power, decision: step === 'home' || step === 'complete' ? decision : null };
+  const afterBroadcast = step === 'handoff' || step === 'home' || step === 'complete';
+  if (afterBroadcast && !decision) return { step: 'call', power, decision };
+  if ((step === 'clue' || step === 'splice') && !power) return { step: 'power', power, decision: null };
+  return { step, power, decision: afterBroadcast ? decision : null };
 }
 
 export function advanceSeason(p: SeasonProgress, event: SeasonEvent): SeasonProgress {
@@ -53,17 +56,19 @@ export function advanceSeason(p: SeasonProgress, event: SeasonEvent): SeasonProg
   };
 }
 
-export type SeasonSpot = 'order' | 'battery' | 'cabinet' | 'receiver' | 'ticket' | 'office' | 'ledger' | 'relay' | 'mic' | 'delivery';
+export type SeasonSpot = 'order' | 'battery' | 'cabinet' | 'receiver' | 'splice' | 'ticket' | 'office' | 'ledger' | 'relay' | 'mic' | 'handoff' | 'delivery';
 export const SEASON_POINTS: Record<SeasonSpot, Vec2> = {
   order: { x: 66.15, z: -39.1 },
   battery: { x: 68.85, z: -42.3 },
   cabinet: { x: 77.85, z: -41.9 },
   receiver: { x: 67.4, z: -43.15 },
+  splice: { x: 75.06, z: -35.35 },
   ticket: { x: 68.0, z: -2.75 },
   office: { x: 77.75, z: -6.1 },
   ledger: { x: 69.4, z: 35.4 },
   relay: { x: 74.9, z: 30.15 },
   mic: { x: 76.6, z: 36.3 },
+  handoff: { x: 79.55, z: 44.22 },
   delivery: { x: -8.0, z: 16.6 },
 };
 export function seasonTarget(s: SeasonProgress): SeasonSpot | null {
@@ -71,18 +76,20 @@ export function seasonTarget(s: SeasonProgress): SeasonSpot | null {
     case 'arrival': return 'order';
     case 'power': return 'battery';
     case 'clue': return s.power === 'lamp' ? 'cabinet' : 'receiver';
+    case 'splice': return 'splice';
     case 'bus': return 'ticket';
     case 'office': return 'office';
     case 'register': return 'ledger';
     case 'relay': return 'relay';
     case 'call': return 'mic';
+    case 'handoff': return 'handoff';
     case 'home': return 'delivery';
     case 'complete': return null;
   }
 }
 
 const ARCHIVE: Partial<Record<SeasonSpot, SeasonStep>> = {
-  order: 'arrival', cabinet: 'clue', receiver: 'clue', ticket: 'bus', office: 'office', ledger: 'register',
+  order: 'arrival', cabinet: 'clue', receiver: 'clue', splice: 'splice', ticket: 'bus', office: 'office', ledger: 'register',
 };
 export function canUseSeasonSpot(s: SeasonProgress, id: SeasonSpot): boolean {
   if (id === seasonTarget(s) || (id === 'delivery' && s.step === 'complete')) return true;
@@ -96,11 +103,13 @@ export const SPOT_ACTION: Record<SeasonSpot, string> = {
   battery: 'подключить аккумулятор',
   cabinet: 'осмотреть освещённый шкаф',
   receiver: 'поймать сигнал на приёмнике',
+  splice: 'собрать разрезанную запись',
   ticket: 'достать билет из-под сиденья',
   office: 'открыть ящик в конторе',
   ledger: 'прочитать журнал рейсов',
   relay: 'подключить линию',
   mic: 'выйти в эфир',
+  handoff: 'проверить выход во двор',
   delivery: 'вернуться к Зое',
 };
 
@@ -112,11 +121,13 @@ export function seasonObjective(s: SeasonProgress): string {
     battery: 'реши, куда подать питание',
     cabinet: 'осмотри шкаф в подсобке',
     receiver: 'проверь приёмник на верстаке',
+    splice: 'восстанови запись у монтажного стола',
     ticket: 'найди в депо автобус № 12',
     office: 'пройди в контору через открывшуюся решётку',
     ledger: 'найди журнал в диспетчерской',
     relay: 'подключи нужную линию',
     mic: 'выбери, что передать в эфир',
+    handoff: 'иди за Тузиком к запасному выходу',
     delivery: 'вернись к дому Зои',
   };
   return `${STAGES[s.step].title} · ${goals[target]}`;
@@ -124,7 +135,7 @@ export function seasonObjective(s: SeasonProgress): string {
 
 export function seasonCheckpoint(s: SeasonProgress): Vec2 {
   if (s.step === 'home' || s.step === 'complete') return { x: -8, z: 18.2 };
-  if (s.step === 'register' || s.step === 'relay' || s.step === 'call') return DISPATCH_ENTRY;
+  if (s.step === 'register' || s.step === 'relay' || s.step === 'call' || s.step === 'handoff') return DISPATCH_ENTRY;
   if (s.step === 'bus' || s.step === 'office') return DEPOT_ENTRY;
   return WORKSHOP_ENTRY;
 }

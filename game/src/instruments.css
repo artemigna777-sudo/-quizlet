@@ -1,0 +1,131 @@
+#instruments {
+  --panel: #262c28;
+  --text: #eee6ce;
+  --lit: #aacd87;
+  --accent: #dfae75;
+  z-index: 9;
+  background: radial-gradient(ellipse at 50% 44%, #313830 0%, #141915 62%, #0c0f0e 100%);
+  padding: max(10px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  align-items: stretch;
+  gap: clamp(5px, 2dvh, 12px);
+  color: var(--text);
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+#instruments[hidden], #instruments [hidden] { display: none; }
+#instruments header {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto minmax(80px, 1fr);
+  align-items: center;
+  border-bottom: 1px solid #56594b;
+  padding-bottom: 6px;
+}
+#instruments header button { justify-self: start; }
+#instruments h2 { margin: 0; font: 400 clamp(19px, 6dvh, 32px) Russo, system-ui; }
+#instruments button, #radioDial { touch-action: none; }
+#instruments :focus-visible { outline: 2px solid var(--lit); outline-offset: 3px; }
+.instrument-button {
+  border: 1px solid #696d59;
+  border-radius: 5px;
+  background: #303831;
+  color: var(--text);
+  min-height: 37px;
+  padding: 5px 11px;
+  font: 650 14px system-ui;
+  cursor: pointer;
+}
+.instrument-button:disabled { opacity: .51; cursor: default; }
+.instrument-deck { display: grid; place-items: center; flex: 1; min-height: 0; }
+#instruments footer { min-height: 39px; }
+#instruments footer p, #instruments output#instrumentStatus { max-width: min(660px, 95%); margin: 0 auto; font: 550 clamp(11px, 3.7dvh, 15px)/1.3 system-ui; }
+#instrumentHint { color: #d8d1bb; }
+#instrumentStatus { min-height: 1.3em; display: block; color: var(--lit); padding-top: 2px; }
+.knock-panel, .radio-face, .patch-panel, .tape-panel {
+  width: min(100%, 690px);
+  height: 100%;
+  max-height: 420px;
+  box-sizing: border-box;
+  border: 1px solid #696557;
+  border-radius: 12px;
+  padding: clamp(8px, 3dvh, 20px);
+  background: linear-gradient(160deg, #343a33, #282d29 64%, #202521);
+  box-shadow: 0 14px 30px #080a09a0, inset 0 1px 1px #86806b80;
+}
+.knock-panel { display: grid; grid-template-rows: 12px 17px minmax(45px, 1fr) auto; gap: min(3dvh, 11px); justify-items: center; }
+.knock-pulses { display: flex; gap: 12px; align-items: center; justify-content: center; }
+.knock-pulses i { width: 11px; height: 11px; background: #525749; border: 1px solid #99a18d55; border-radius: 50%; }
+.knock-pulses i[data-lit] { background: var(--lit); box-shadow: 0 0 10px #abf68372; }
+.knock-track { position: relative; width: min(86%, 430px); height: 11px; border-radius: 3px; background: #171b18; border: 1px solid #6b6b5a; }
+.knock-track i { position: absolute; inset: 0 auto 0 var(--from, 0%); width: var(--span, 0%); background: #87b276; }
+.knock-track b { position: absolute; inset: -3px auto -3px var(--level, 0%); width: 3px; border-radius: 2px; background: #f4dbab; }
+.knock-plate {
+  width: min(84%, 450px);
+  height: 100%;
+  border: 1px solid #90928a;
+  border-radius: 14px;
+  color: #eee5ce;
+  text-shadow: 0 2px 2px #181a17;
+  font: 700 clamp(20px, 6dvh, 36px) system-ui;
+  cursor: pointer;
+  background: repeating-linear-gradient(110deg, #c4c7bd06 0 1px, transparent 1px 5px), linear-gradient(155deg, #60655c, #313932);
+  box-shadow: inset 0 2px 1px #9c9d8c, 0 5px 0 #171a16;
+}
+.knock-plate:active, .knock-plate[data-struck] { transform: translateY(3px); filter: brightness(1.26); box-shadow: inset 0 1px 0 #a6aa99, 0 2px 0 #171a16; }
+#knockDemo { min-height: 34px; }
+.radio-face { display: grid; grid-template-columns: 1.7fr 1fr; align-items: center; gap: min(4vw, 30px); }
+.radio-scope { width: 100%; min-width: 0; padding: clamp(7px, 2dvh, 14px); box-sizing: border-box; border: 1px solid #666858; border-radius: 7px; background: #121914; }
+.radio-display { display: flex; align-items: center; justify-content: space-between; font: 650 12px monospace; letter-spacing: .13em; color: #b6c3a4; }
+#radioFreq { color: #dce9b0; font: 750 clamp(19px, 8dvh, 40px) monospace; letter-spacing: .05em; }
+#radioScope { display: block; width: 100%; height: clamp(31px, 18dvh, 92px); margin-block: 5px; border-block: 1px solid #566149; }
+#radioMeter { height: 5px; border-radius: 2px; background: #384338; }
+#radioMeter span { display: block; height: inherit; width: var(--level, 0%); background: var(--lit); }
+.radio-control { display: grid; gap: 6px; justify-items: center; font: 550 clamp(11px, 3.5dvh, 14px) system-ui; color: #d7d5c6; }
+.dial-rim { padding: 8px; border-radius: 50%; background: repeating-conic-gradient(from 224deg, #c3b89a 0deg 2deg, #43473d 2deg 15deg); box-shadow: 0 0 0 1px #737460; }
+#radioDial {
+  display: grid;
+  place-items: start center;
+  width: clamp(58px, 35dvh, 166px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 4px solid #696c5b;
+  outline-offset: 5px;
+  cursor: grab;
+  background: radial-gradient(circle at 34% 22%, #777b6e, #383c34 58%, #272a24);
+  box-shadow: inset 0 0 0 4px #242920, 0 4px 7px #090b08;
+  transform: rotate(var(--angle, -75deg));
+}
+#radioDial:active { cursor: grabbing; }
+#radioDial i { width: 10%; height: 26%; border-radius: 3px; background: #ead4ae; margin-top: 9%; pointer-events: none; }
+.tape-panel { display: grid; grid-template-rows: 1fr 1fr auto; align-items: stretch; gap: clamp(4px, 2dvh, 12px); }
+.tape-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(4px, 1.6vw, 13px); min-height: 0; }
+.tape-row > div { position: relative; display: grid; place-items: center; border-radius: 5px; }
+#tapeSlots > div { border: 1px dashed #929581; color: #c3c4ad; background: #171e19; font: 600 clamp(11px, 3.6dvh, 15px) system-ui; }
+#tapeSlots > div:has(button) span { visibility: hidden; }
+#tapeSlots > div[data-hover], .relay-port[data-hover] { box-shadow: 0 0 0 2px var(--lit); }
+.tape-piece {
+  position: absolute;
+  inset: 2px;
+  display: grid;
+  justify-items: start;
+  align-content: center;
+  gap: 3px;
+  padding: 4px 8px;
+  border: 1px solid #c1a478;
+  border-radius: 4px;
+  color: #262016;
+  background: #d2b585;
+  font: 700 clamp(11px, 4dvh, 16px)/1.1 system-ui;
+  cursor: grab;
+  white-space: nowrap;
+}
+.tape-piece i { height: clamp(4px, 3dvh, 12px); width: 100%; border-left: 2px solid #695435; background: repeating-linear-gradient(90deg,#6e5738 0 2px,transparent 2px 5px); clip-path: polygon(0 52%, 8% 40%, 18% 0, 24% 78%, 39% 23%, 48% 72%, 65% 10%, 72% 23%, 82% 92%, 95% 32%, 100% 49%, 100% 64%, 0 74%); }
+.tape-piece[data-dragging] { opacity: .27; }
+.tape-drag { position: fixed; z-index: 10; pointer-events: none; translate: -50% -50%; }
+#tapeCheck { justify-self: center; }
+.patch-panel { display: grid; grid-template-rows: 1fr auto; align-items: center; justify-items: center; position: relative; }
+#relayPorts { display: flex; gap: clamp(11px, 6vw, 60px); align-self: start; padding-top: 5px; }
+.relay-port { display: grid; place-items: center; gap: 4px; border: 1px solid #777a6c; background: #41483e; color: var(--text); border-radius: 8px; min-width: clamp(50px, 12vw, 110px); min-height: clamp(48px, 20dvh, 100px); padding: 4px 9px; font: 750 clamp(15px, 5dvh, 25px) monospace; cursor: pointer; }
+.relay-port i { display: block; width: clamp(15px, 8dvh, 35px); aspect-ratio: 1; background: #121711; border-radius: 50%; border: 4px solid #8a8e74; box-sizing: border-box; }
+#relayPlug { display: flex; align-items: center; gap: 7px; align-self: end; min-height: 42px; padding: 5px 11px; border: 1px solid #bd985b; border-radius: 5px; color: #20190d; background: #d2b37c; font: 700 14px system-ui; cursor: grab; }
+#relayPlug i { width: 14px; height: 8px; border-radius: 1px; background: #58452b; }
+.relay-cable { position: fixed; inset: 0 auto auto 0; height: 5px; z-index: 10; transform-origin: 0 50%; background: #e1bd84; border: 1px solid #62492c; border-radius: 4px; pointer-events: none; }

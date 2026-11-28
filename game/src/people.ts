@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
-export type Look = 'echo' | 'pale' | 'zoya' | 'josh';
+export type Look = 'echo' | 'clown' | 'zoya' | 'josh';
 
 export class Actor {
   readonly root = new THREE.Group();
@@ -39,8 +39,8 @@ export class Actor {
 export async function loadPeople(): Promise<(look: Look) => Actor> {
   const loader = new GLTFLoader();
   const url = (n: string) => new URL(`people/${n}.glb`, document.baseURI).href;
-  const [echo, zoya, josh] = await Promise.all(['echo', 'zoya', 'josh'].map((name) => loader.loadAsync(url(name))));
-  const lambert = (scene: THREE.Object3D, pale: boolean) => {
+  const [echo, zoya, josh, clown] = await Promise.all(['echo', 'zoya', 'josh', 'whiteclown'].map((name) => loader.loadAsync(url(name))));
+  const lambert = (scene: THREE.Object3D) => {
     const made = new Map<THREE.Material, THREE.Material>();
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
@@ -51,7 +51,7 @@ export async function loadPeople(): Promise<(look: Look) => Actor> {
         let n = made.get(src);
         if (!n) {
           const s = src as THREE.MeshStandardMaterial;
-          n = new THREE.MeshLambertMaterial({ map: s.map, color: pale ? 0xe6ecff : s.map ? 0xffffff : s.color, emissive: pale ? 0x4a5060 : 0x000000, alphaTest: s.transparent || s.alphaTest ? 0.4 : 0, side: s.side });
+          n = new THREE.MeshLambertMaterial({ map: s.map, color: s.map ? 0xffffff : s.color, alphaTest: s.transparent || s.alphaTest ? 0.4 : 0, side: s.side });
           made.set(src, n);
         }
         return n;
@@ -60,10 +60,18 @@ export async function loadPeople(): Promise<(look: Look) => Actor> {
     });
     return scene;
   };
-  // Крикун использует ту же сетку, что и Стрелок, с другим материалом.
-  const paleScene = lambert(clone(echo.scene), true);
-  for (const { scene } of [echo, zoya, josh]) lambert(scene, false);
-  const people = { echo, zoya, josh, pale: { scene: paleScene, animations: echo.animations } };
+  // У клоуна тот же скелет Mixamo, но другая высота таза.
+  const hipScale = clown.scene.getObjectByName('mixamorigHips')!.position.y / echo.scene.getObjectByName('mixamorigHips')!.position.y;
+  clown.animations = echo.animations.map((source) => {
+    const clip = source.clone();
+    for (const track of clip.tracks) {
+      if (track.name !== 'mixamorigHips.position') continue;
+      for (let i = 0; i < track.values.length; i++) track.values[i] *= hipScale;
+    }
+    return clip;
+  });
+  for (const { scene } of [echo, zoya, josh, clown]) lambert(scene);
+  const people = { echo, zoya, josh, clown };
   return (look) => {
     const { scene, animations } = people[look];
     return new Actor(clone(scene), animations);

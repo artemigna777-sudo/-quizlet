@@ -35,18 +35,20 @@ export class Enemies {
   constructor(private scene: THREE.Scene, private make: (look: Look) => Actor) {}
 
   private add(kind: Kind, pos: Vec2, forced = false) {
-    const actor = this.make(kind === 'echo' ? 'echo' : 'pale');
+    const actor = this.make(kind === 'echo' ? 'echo' : 'clown');
     const g = actor.root;
     if (kind === 'screamer') g.scale.setScalar(1.14);
     g.position.set(pos.x, 0, pos.z);
     actor.play('idle');
     this.scene.add(g);
-    this.list.push({ kind, mesh: g, actor, scream: forced ? .65 : 0, dead: false, pos: { ...pos }, hp: kind === 'echo' ? 100 : forced ? 88 : 60, aware: forced, cool: .6, stun: 0, dying: 0, dir: Math.random() * 6.28, turnT: 0, rush: forced ? 8.8 : 0, gait: 0, forced, windup: 0 });
+    const enemy: Enemy = { kind, mesh: g, actor, scream: forced ? .65 : 0, dead: false, pos: { ...pos }, hp: kind === 'echo' ? 100 : forced ? 88 : 60, aware: forced, cool: .6, stun: 0, dying: 0, dir: Math.random() * 6.28, turnT: 0, rush: forced ? 8.8 : 0, gait: 0, forced, windup: 0 };
+    this.list.push(enemy);
+    return enemy;
   }
   clear() { for (const e of this.list) this.scene.remove(e.mesh); this.list.length = 0; this.usedNooks.clear(); }
   /** Для проверок. */
   spawn(kind: Kind, pos: Vec2) { this.add(kind, pos); }
-  startle(pos: Vec2) { this.add('screamer', pos, true); }
+  startle(pos: Vec2) { return this.add('screamer', pos, true); }
 
   update(dt: number, c: Ctx): Tick {
     const out: Tick = { damage: 0, screamed: false, near: false, died: [] };
@@ -179,7 +181,7 @@ export class Enemies {
     for (const e of this.list) {
       if (e.dead || e.dying || e.hp <= 0) continue;
       target.min.set(e.pos.x - 0.34, 0.08, e.pos.z - 0.34);
-      target.max.set(e.pos.x + 0.34, 1.76, e.pos.z + 0.34);
+      target.max.set(e.pos.x + 0.34, e.kind === 'screamer' ? 2.19 : 1.76, e.pos.z + 0.34);
       if (!ray.intersectBox(target, point)) continue;
       const d = ray.origin.distanceTo(point);
       if (d < distance) { best = e; distance = d; }

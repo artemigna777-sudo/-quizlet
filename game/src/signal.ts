@@ -11,3 +11,6 @@ export const RADIO_CHANNEL = 12.6;
 export const RADIO_LOCK_MS = 1150;
 export const radioStrength = (channel: number) => Math.max(0, 1 - Math.abs(channel - RADIO_CHANNEL) / 2.4);
 export const radioInTune = (channel: number) => Math.abs(channel - RADIO_CHANNEL) <= .21;
+
+export const TAPE_ORDER = ['click', 'knock', 'voice'] as const;
+export const tapeFits = (order: readonly (string | undefined)[]) => order.length === TAPE_ORDER.length && TAPE_ORDER.every((piece, i) => order[i] === piece);

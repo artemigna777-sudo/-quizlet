@@ -66,6 +66,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 .cine #hud,.cine .btn,.cine #prompt,.cine #toast,.cine #stick{display:none!important}
 #goal{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 12px);max-width:44vw;padding:6px 14px;border-radius:999px;background:rgba(14,15,19,.6);border:1px solid rgba(255,122,46,.6);font-size:13px;font-weight:700;text-align:center;pointer-events:none;color:#ffe2c8}
 .cine #goal,body:has(.screen.on) #goal{display:none}
+.scaring #hud,.scaring #prompt,.scaring #goal,.scaring #toast,.scaring .btn{visibility:hidden}
 #rotate{position:fixed;inset:0;z-index:9;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#06070a;font-family:Russo,sans-serif;font-size:20px;text-align:center;padding:24px}
 #rotate b{font-size:64px;color:#ff7a2e;font-weight:400}
 #stick{position:fixed;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:2px solid rgba(255,255,255,.3);background:rgba(255,255,255,.06);display:none;pointer-events:none}
@@ -88,7 +89,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 #card .paper h2{margin:0 0 10px;font-family:Russo,sans-serif;font-weight:400;font-size:26px}
 #card .paper p{color:#3a2e22;font-size:18px}
 #card .paper p{white-space:pre-line;text-align:left;max-height:48dvh;overflow:auto;touch-action:pan-y;overscroll-behavior:contain}
-#card .paper:has(.choices:not([hidden]),.instrument:not([hidden])) p{max-height:23dvh}
+#card .paper:has(.choices:not([hidden])) p{max-height:23dvh}
 #card .paper{max-width:min(560px,92vw);padding:18px 22px}
 #cardImg{width:100%;max-height:34dvh;object-fit:contain;border-radius:4px;margin-bottom:10px;box-shadow:0 4px 14px rgba(0,0,0,.4)}
 #card .paper small{display:block;color:#b0501a;font-family:Russo,sans-serif;letter-spacing:2px;font-size:12px;margin-bottom:6px}
@@ -97,17 +98,6 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 .choices[hidden]{display:none}
 .choices button{font:600 15px system-ui;color:#232822;background:#ded1ab;border:1px solid #857d61;border-radius:6px;padding:9px;text-align:left;cursor:pointer}
 .choices button:focus-visible{outline:2px solid #05476f;outline-offset:2px}
-.instrument{display:grid;gap:7px;margin-top:9px;text-align:left;line-height:1.2}
-.instrument[hidden],.instrument [hidden]{display:none}
-.instrument-bar{height:12px;position:relative;overflow:hidden;border-radius:3px;background:#bbb08f;border:1px solid #9f9272}
-.instrument-bar b{display:block;position:absolute;inset:0 auto 0 0;width:var(--level,0%);background:#1f6460;border-radius:2px}
-.instrument-bar i{display:block;position:absolute;top:0;bottom:0;left:var(--band-start,0%);width:var(--band-width,0%);background:#729276}
-.instrument-bar .needle{width:3px;height:100%;left:var(--level,0%);background:#312910}
-.instrument-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.instrument-actions button{min-height:43px;padding:7px 14px;font:650 15px system-ui;color:#25271e;background:#e9dbad;border:1px solid #9c8d64;border-radius:6px;touch-action:manipulation}
-.instrument-actions button.primary{background:#235d56;color:#fff7df;border-color:#235d56}
-.instrument input[type=range]{width:100%;min-height:37px;accent-color:#235d56;touch-action:pan-x}
-.instrument-output{min-height:1.22em;font:600 13px system-ui;color:#384b40}
 #hold{margin-top:6px;font-size:13px;color:#cfd3dc;font-family:system-ui,sans-serif;font-weight:700}
 #hold b{color:#ffd9a0}
 #flash{position:fixed;inset:0;pointer-events:none;opacity:0;background:#fff3dc}
@@ -169,18 +159,53 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
   <small><a href="./sfx/credits.txt" target="_blank" rel="noopener" style="color:inherit">Авторы звука</a></small>
   <small>Ранняя версия. Игру придумывают зрители, код пишет нейросеть.</small>
 </div>
-<div class="screen" id="card"><div class="paper"><small id="cardKind"></small><img id="cardImg" alt="" style="display:none"><h2 id="cardTitle"></h2><p id="cardText" aria-live="polite"></p>
-  <div class="instrument" id="knocker" hidden>
-    <div class="instrument-bar" id="knockMeter" aria-hidden="true"><i></i><b class="needle"></b></div>
-    <div class="instrument-actions"><button type="button" class="primary" id="knockTap">Стукнуть</button><button type="button" id="knockDemo">Послушать ритм</button></div>
-    <output class="instrument-output" id="knockInfo" aria-live="polite"></output>
+<div class="screen" id="card"><div class="paper"><small id="cardKind"></small><img id="cardImg" alt="" style="display:none"><h2 id="cardTitle"></h2><p id="cardText" aria-live="polite"></p><div class="choices" id="seasonChoices" hidden></div></div><button class="go" id="cardOk">ДАЛЬШЕ</button></div>
+<section class="screen" id="instruments" role="dialog" aria-modal="true" aria-labelledby="instrumentTitle">
+  <header><button class="instrument-button" id="instrumentBack" type="button">‹ Отойти</button><h2 id="instrumentTitle"></h2><span aria-hidden="true"></span></header>
+  <div id="knocker" class="instrument-deck" hidden>
+    <div class="knock-panel">
+      <div class="knock-pulses" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="knock-track" id="knockMeter" aria-hidden="true"><i></i><b></b></div>
+      <button id="knockTap" type="button" class="knock-plate"><span>Стукнуть</span></button>
+      <button id="knockDemo" type="button" class="instrument-button">Послушать ритм</button>
+    </div>
   </div>
-  <div class="instrument" id="tuner" hidden>
-    <label for="radioDial">Частота <output id="radioFreq"></output></label><input id="radioDial" type="range" min="8" max="17" value="10" step=".1">
-    <div class="instrument-bar" id="radioMeter" role="meter" aria-label="Чистота сигнала" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><b></b></div>
-    <output class="instrument-output" id="radioInfo" aria-live="polite"></output>
+  <div id="tuner" class="instrument-deck" hidden>
+    <div class="radio-face">
+      <div class="radio-scope">
+        <div class="radio-display"><span>ЧАСТОТА</span><output id="radioFreq"></output></div>
+        <canvas id="radioScope" width="420" height="92" aria-hidden="true"></canvas>
+        <div id="radioMeter" role="meter" aria-label="Чистота сигнала" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
+      </div>
+      <div class="radio-control"><div class="dial-rim"><div id="radioDial" role="slider" tabindex="0" aria-label="Частота" aria-valuemin="8" aria-valuemax="17" aria-valuenow="10"><i></i></div></div></div>
+    </div>
   </div>
-  <div class="choices" id="seasonChoices" hidden></div></div><button class="go" id="cardOk">ДАЛЬШЕ</button></div>
+  <div id="splicer" class="instrument-deck" hidden>
+    <div class="tape-panel">
+      <div id="tapeSlots" class="tape-row">
+        <div data-tape-slot="0" aria-label="Первый фрагмент"><span>Начало</span></div><div data-tape-slot="1" aria-label="Второй фрагмент"><span>Середина</span></div><div data-tape-slot="2" aria-label="Третий фрагмент"><span>Конец</span></div>
+      </div>
+      <div id="tapeTray" class="tape-row">
+        <div><button type="button" class="tape-piece" data-tape-id="voice"><i></i>Голос</button></div>
+        <div><button type="button" class="tape-piece" data-tape-id="knock"><i></i>Стук</button></div>
+        <div><button type="button" class="tape-piece" data-tape-id="click"><i></i>Щелчок реле</button></div>
+      </div>
+      <button id="tapeCheck" type="button" class="instrument-button" disabled>Воспроизвести</button>
+    </div>
+  </div>
+  <div id="patcher" class="instrument-deck" hidden>
+    <div class="patch-panel">
+      <div id="relayPorts">
+        <button type="button" class="relay-port" data-line="3"><i></i>03</button>
+        <button type="button" class="relay-port" data-line="12"><i></i>12</button>
+        <button type="button" class="relay-port" data-line="26"><i></i>26</button>
+      </div>
+      <div class="relay-cable" id="relayCable" hidden></div>
+      <button type="button" id="relayPlug" aria-label="Штекер коммутатора"><i></i><span>Штекер</span></button>
+    </div>
+  </div>
+  <footer><p id="instrumentHint"></p><output id="instrumentStatus" aria-live="polite"></output></footer>
+</section>
 <div class="screen" id="erased"><h1 id="erasedTitle">ТЕБЯ СТЁРЛИ</h1><p id="erasedText"></p><button class="go" id="again">ЕЩЁ РАЗ</button></div>
 <div class="screen" id="pause"><h1>ПАУЗА</h1><button class="go" id="resume">ПРОДОЛЖИТЬ</button><button class="ghost" id="quality"></button><button class="ghost" id="returnMenu">В меню</button></div>
 <div class="screen" id="map">
