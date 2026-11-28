@@ -6,12 +6,6 @@ export const HOUSE12_ID = {
 
 export const TAPE_LINE = 'Вера, если Костя опять постучит, скажи, что я дома. Я же обещала. Два быстрых, пауза, потом ещё раз. Так он знает, что это я.';
 
-export const PIPE_REPLIES = [
-  { label: 'Три стука подряд', taps: [0, 0.24, 0.48], matches: false },
-  { label: 'Два стука, пауза, ещё один', taps: [0, 0.24, 0.92], matches: true },
-  { label: 'Один стук, пауза, ещё два', taps: [0, 0.63, 0.87], matches: false },
-] as const;
-
 export function readHouse12Progress(saved: unknown): number {
   if (typeof saved !== 'number' || !Number.isFinite(saved)) return HOUSE12.street;
   return Math.max(HOUSE12.street, Math.min(HOUSE12.answered, Math.floor(saved)));

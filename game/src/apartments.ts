@@ -15,10 +15,14 @@ const AT = (x: number, z: number): Vec2 => ({ x: APARTMENTS.x + x, z: APARTMENTS
 export const TAPE_DECK = AT(3.44, 1.57);
 export const TAPE_DOOR = AT(5.15, 0);
 export const REPLY_PIPE = AT(8.54, -1.42);
+const BALCONY = { left: -8.02, right: -4.38, back: -8.04, front: -5.87 };
+const onBalcony = (x: number, z: number) => x > BALCONY.left && x < BALCONY.right && z > BALCONY.back && z <= BALCONY.front;
+export interface ApartmentClimb { to: Vec2; floor: number; kind: 'ladder' | 'window'; label: string }
 
 /** Высота на двух маршах с разворотом. Вне лестницы ходим по площадкам. */
 export function apartmentHeight(p: Vec2, old: number) {
   const { x, z } = LOCAL(p);
+  if (old > 1.5 && onBalcony(x, z)) return H;
   if (Math.abs(x) >= 9 || Math.abs(z) >= 6.2) return 0;
   if (Math.abs(x) >= 1.92 || z >= STAIR_START) return H * Math.round(old / H);
   const k = Math.min(1, (STAIR_START - z) / (STAIR_START - STAIR_TURN));
@@ -51,6 +55,12 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
   const trim = lambert({ color: 0xc7bba5 }), door = lambert({ color: 0x604433 });
   const lamp = new THREE.MeshBasicMaterial({ color: 0xd1b984 });
   const glass = new THREE.MeshBasicMaterial({ color: 0x597584, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false });
+  const tile = lambert({ map: canvasTex(32, 32, (g) => {
+    g.fillStyle = '#8e9b8d'; g.fillRect(0, 0, 32, 32);
+    g.fillStyle = '#c2bdad'; g.fillRect(0, 0, 1, 32); g.fillRect(0, 0, 32, 1);
+    g.fillStyle = '#68796d'; g.fillRect(0, 31, 32, 1); g.fillRect(31, 0, 1, 32);
+  }, [6, 6]) });
+  const enamel = lambert({ color: 0xc3c5b6 });
   const fabrics = ['#7c4b45', '#7a8071', '#6c665a', '#ae9462', '#4e706d', '#836955'].map((color, i) => lambert({ map: canvasTex(48, 32, (c, w, h) => {
     c.fillStyle = color; c.fillRect(0, 0, w, h);
     c.fillStyle = 'rgba(35,24,17,.38)'; c.fillRect(2, 2, w - 4, h - 4);
@@ -64,6 +74,7 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
   const stops: Box[][] = [[], [], []];
   const spots: Spot[] = [];
   const backRoom = new THREE.Group();
+  let balconyGlass: THREE.Mesh | null = null;
   root.add(backRoom);
   const box = (x: number, y: number, z: number, w: number, h: number, d: number, material: THREE.Material | THREE.Material[]) => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
@@ -122,6 +133,7 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
     for (const s of [-1, 1]) {
       const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.91, 1.13), glass);
       pane.position.set(x + s * 0.48, y + 1.72, z); root.add(pane); ballistics.register(pane, true);
+      if (f === 1 && x < 0 && z < 0 && s === -1) balconyGlass = pane;
     }
   };
 
@@ -148,7 +160,29 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
         surface(s * 8.05, y + 1.5, z, 1.9, 3, 0.24, brick, f);
       }
       const variant = f * 2 + (s > 0 ? 1 : 0);
-      put('painted_wooden_cabinet', s * 8.35, y, 4.7, f, -s * Math.PI / 2);
+      // От площадки ведёт прихожая. Стояки ванной проходят друг над другом.
+      const kitchenWall = s * (variant % 2 ? 5.63 : 5.82);
+      surface(kitchenWall, y + 1.49, 1.08, .12, 2.98, 1.91, paper, f);
+      surface(kitchenWall, y + 1.49, 5.16, .12, 2.98, 1.44, paper, f);
+      surface(kitchenWall, y + 2.63, 3.21, .12, .7, 2.34, paper);
+      for (const z of [2.08, 4.39]) box(kitchenWall, y + 1.16, z, .16, 2.32, .09, trim);
+      put('painted_wooden_cabinet', s * 4.1, y, 5.42, f, Math.PI, .82);
+      rug(fabrics[variant], s * 3.55, y, 4.13, 1.24, 1.04);
+      surface(s * 7.43, y + 1.49, 4.64, .12, 2.98, 2.48, [tile, paper, tile, tile, tile, tile], f);
+      for (const [u, w] of [[7.52, .20], [8.78, .26]]) surface(s * u, y + 1.49, 3.39, w, 2.98, .12, tile, f);
+      surface(s * 8.08, y + 2.64, 3.39, 1.14, .68, .12, paper);
+      surface(s * 8.18, y - .01, 4.61, 1.42, .045, 2.38, tile);
+      box(s * 8.22, y + .039, 3.83, .58, .035, .43, variant % 2 ? metal : fabrics[variant]);
+      // Чугунную ванну видно из коридора. У порога остаётся место развернуться.
+      surface(s * 8.52, y + .25, 5.04, .65, .49, 1.21, enamel, f);
+      box(s * 8.52, y + .502, 5.03, .45, .018, .97, concrete);
+      for (const edge of [-1, 1]) box(s * 8.52 + edge * .29, y + .53, 5.04, .05, .08, 1.22, enamel);
+      box(s * 8.55, y + 1.09, 5.73, .21, .05, .21, metal);
+      box(s * 7.66, y + .81, 4.35, .37, .19, .44, enamel);
+      box(s * 7.54, y + 1.45, 4.35, .035, .54, .35, trim);
+      box(s * 3.14, y + 1.71, 5.76, 1.08, .38, .08, trim);
+      for (let i = 0; i < 3; i++) box(s * (2.83 + i * .31), y + 1.62, 5.68, .034, .15, .035, metal);
+      box(s * 3.02, y + 1.44, 5.62, .31, .45 + (variant % 3) * .12, .08, fabrics[variant]);
       const bed = put(variant % 3 === 0 ? 'Sofa_01' : 'vintage_day_bed', s * 8.19, y, -3.25, f, -s * Math.PI / 2);
       put(variant % 2 ? 'electric_stove' : 'dining_table', s * 6.5, y, 3.5, f, Math.PI / 2);
       put(variant % 2 ? 'potted_plant_04' : 'pot_enamel_01', s * 6.5, y + (variant % 2 ? 0.90 : 0.8), 3.48, f, s, 0.8);
@@ -208,7 +242,7 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
           put('ArmChair_01', 7.89, y, -4.40, f, -1.05, 0.86);
           put('side_table_01', 6.62, y, -5.09, f);
           put('Television_01', 6.62, y + models.get('side_table_01')!.size.y, -5.09, f, 0.25, 0.76);
-          put('long_life_food', 7.9, y + models.get('painted_wooden_cabinet')!.size.y, 4.7, f, 0, 0.6);
+          put('long_life_food', 4.1, y + models.get('painted_wooden_cabinet')!.size.y * .82, 5.42, f, 0, 0.6);
           break;
         case 4:
           put('Rockingchair_01', -6.98, y, -4.88, f, 0.44, 0.8);
@@ -218,7 +252,7 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
           break;
         case 5:
           put('vintage_electric_kettle', 6.79, y + models.get('electric_stove')!.size.y, 3.8, f, 0.3, 0.66);
-          put('wooden_cutting_board', 8.31, y + models.get('painted_wooden_cabinet')!.size.y, 4.6, f, 0.2, 0.81);
+          put('wooden_cutting_board', 4.1, y + models.get('painted_wooden_cabinet')!.size.y * .82, 5.42, f, 0.2, 0.81);
           backRoom.add(put('SchoolDesk_01', 7.64, y, -4.95, f, Math.PI, 0.84));
           backRoom.add(put('football', 7.25, y, -4.55, f, 0.4, 0.67));
           backRoom.add(put('plastic_monobloc_chair_01', 7.70, y, -4.18, f, -0.3, 0.64));
@@ -236,6 +270,17 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
   }
   surface(0, 9.12, 0, 18.35, 0.24, 12.32, concrete);
   surface(0, 0.02, 6.36, 2.6, 0.11, 1.05, concrete);
+  surface(-6.20, H - .13, -6.96, 3.76, .26, 2.18, concrete);
+  for (const x of [-7.94, -4.46]) surface(x, H + .48, -6.95, .14, .96, 2.12, metal, 1);
+  surface(-6.19, H + .50, -7.98, 3.56, .99, .13, metal, 1);
+  for (let x = -7.79; x < -4.58; x += .27) box(x, H + .51, -7.9, .025, .94, .045, trim);
+  for (const x of [-5.84, -4.99]) box(x, 1.66, -8.10, .055, 3.31, .055, metal);
+  for (let y = .20; y < 3.25; y += .29) box(-5.415, y, -8.12, .87, .042, .064, trim);
+  box(-7.50, H + .26, -7.12, .55, .48, .49, trim);
+  box(-7.50, H + .49, -7.12, .58, .05, .52, metal);
+  box(-7.24, H + 1.34, -6.59, .018, .018, 1.39, trim);
+  box(-7.24, H + 1.12, -6.74, .035, .44, .44, fabrics[2]);
+  note('chapter2:balcony', 1, -7.52, .52, -7.12, 'Записка на табурете', '«Опять звонили из диспетчерской. Спросили номер квартиры, пока я стоял на балконе. Из трубки донёсся мой собственный ответ. После этого звонили ещё два раза».');
   label('ДОМ 12', 0, 2.64, 6.03, 0, 1.9);
   label('ЛЕСТНИЦА ↑', -0.9, 1.52, -2.96, 0, 1.15);
   for (let floor = 0; floor < 2; floor++) {
@@ -333,6 +378,25 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
   const inside = (p: Vec2) => { const { x, z } = LOCAL(p); return Math.abs(x) < 9 && Math.abs(z) < 6; };
   const onStairs = (p: Vec2) => { const { x, z } = LOCAL(p); return Math.abs(x) < 1.93 && z < STAIR_START && z > -6; };
   const layers = regions.map((r, i) => [...r, ...stairRail, ...stops[i]]);
+  const traverse = (p: Vec2, floor: number, forward: Vec2): ApartmentClimb | null => {
+    const { x, z } = LOCAL(p);
+    const facing = (tx: number, tz: number, range: number) => {
+      const dx = tx - x, dz = tz - z, d = Math.hypot(dx, dz);
+      return d < range && (d < .27 || (dx * forward.x + dz * forward.z) / d > .38);
+    };
+    if (floor < .1 && z < -8 && facing(-5.415, -8.12, 1.5)) {
+      return { to: AT(-5.42, -7.40), floor: H, kind: 'ladder', label: 'подняться на балкон' };
+    }
+    if (Math.abs(floor - H) > .2) return null;
+    if (onBalcony(x, z) && facing(-5.415, -7.9, 1.2)) {
+      return { to: AT(-5.42, -8.76), floor: 0, kind: 'ladder', label: 'спуститься с балкона' };
+    }
+    if (balconyGlass && !balconyGlass.visible && facing(-6.58, -5.88, 1.40)) {
+      const fromBalcony = onBalcony(x, z);
+      return { to: AT(-6.58, fromBalcony ? -5.27 : -6.54), floor: H, kind: 'window', label: fromBalcony ? 'перелезть через окно' : 'перелезть на балкон' };
+    }
+    return null;
+  };
   const setProgress = (step: number) => {
     const restored = step >= HOUSE12.room;
     tape.visible = house12SpotVisible(HOUSE12_ID.tape, step);
@@ -346,7 +410,7 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
   };
   setProgress(HOUSE12.street);
   return {
-    spots, bulletBoxes, inside, onStairs, setProgress,
+    spots, bulletBoxes, inside, onStairs, setProgress, traverse,
     target(step: number) { return spots.find((s) => s.id === house12Target(step)); },
     update(t: number, cam: THREE.Vector3, high: boolean) {
       const distance = Math.hypot(cam.x - APARTMENTS.x, cam.z - APARTMENTS.z);
@@ -355,7 +419,10 @@ export async function buildApartments(scene: THREE.Scene, worldBoxes: Box[], bal
       if (high) backLamp.visible = distance < (backLamp.visible ? 26 : 20);
       else backLamp.visible = distance < (backLamp.visible ? 15 : 10) && cam.y >= 6.20;
     },
-    collision(p: Vec2, height: number) { return inside(p) && height > 0.03 ? layers[Math.round(height / H)] : worldBoxes; },
+    collision(p: Vec2, height: number) {
+      const { x, z } = LOCAL(p);
+      return (inside(p) || onBalcony(x, z)) && height > 0.03 ? layers[Math.round(height / H)] : worldBoxes;
+    },
     height: apartmentHeight,
   };
 }

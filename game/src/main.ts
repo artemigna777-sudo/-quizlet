@@ -1,6 +1,6 @@
 /** Главный цикл: меню → игра → записка / воспоминание / стирание. Прогресс хранится на устройстве. */
 import * as THREE from 'three';
-import { buildApartments, APARTMENTS, ENTRANCE, TAPE_DECK, TAPE_DOOR } from './apartments';
+import { buildApartments, APARTMENTS, ENTRANCE, TAPE_DECK, TAPE_DOOR, type ApartmentClimb } from './apartments';
 import { Sound } from './audio';
 import { Ballistics } from './ballistics';
 import { Cine, type Shot } from './cine';
@@ -10,7 +10,7 @@ import { Dog } from './dog';
 import { canvasTex } from './gfx';
 import { HeroBody } from './hero';
 import { buildHomes, type Spot } from './homes';
-import { HOUSE12, HOUSE12_ID, PIPE_REPLIES, TAPE_LINE, house12Objective, house12SpotVisible, readHouse12Progress } from './house12';
+import { HOUSE12, HOUSE12_ID, TAPE_LINE, house12Objective, house12SpotVisible, readHouse12Progress } from './house12';
 import { Input } from './input';
 import { clearWalk, stepErasure } from './logic';
 import { animateMemories, buildMemories, type Memory } from './memories';
@@ -22,21 +22,35 @@ import { Player } from './player';
 import { Shooter } from './shooter';
 import { buildSeasonWorld } from './season2-world';
 import { advanceSeason, canUseSeasonSpot, readSeasonProgress, WORKSHOP, WORKSHOP_ENTRY, DEPOT, DEPOT_ENTRY, DISPATCH, DISPATCH_ENTRY, seasonCheckpoint, seasonObjective, seasonTarget, SPOT_ACTION, SEASON_POINTS, type SeasonEvent, type SeasonProgress, type SeasonSpot } from './season2';
+import { KNOCK_PATTERN, KNOCK_WINDOWS, TAP_TIMEOUT, knockFits, radioInTune, radioStrength, RADIO_LOCK_MS } from './signal';
 import { HOMES, canReveal, canTake, homeOf, itemOf, memId, revealed, yardGoal, type YardState } from './story';
 import { SURV, advanceClock, clockText, daylight, drink, eat, grayOf, hurt, isNight, stepVitals, type Vitals } from './survival';
 import { VOICE_DUR } from './voicedur';
 import { AREA, buildWorld, inArea } from './world';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-type Mode = 'menu' | 'play' | 'card' | 'erased' | 'pause' | 'peek' | 'cine' | 'map';
+const REPLAY_KEY = `${CFG.saveKey}:season2-replay`;
+const replaying = new URLSearchParams(location.search).get('replay') === '2';
+const saveKey = replaying ? REPLAY_KEY : CFG.saveKey;
+type Mode = 'menu' | 'play' | 'card' | 'erased' | 'pause' | 'peek' | 'cine' | 'map' | 'climb';
 interface Save extends YardState { loot: string[]; food: number; water: number; ammo: number; axe: boolean; gun: boolean; vit: Vitals; tod: number; parts: number; axeLvl: number; gunLvl: number; intro: boolean; nightSeen: boolean; free: boolean; met: boolean; zstage: number; nights: number; chapter2: number; season: SeasonProgress }
 const FRESH: Save = { found: [], taken: [], hold: null, loot: [], food: 0, water: 0, ammo: 0, axe: false, gun: false, vit: { hp: 100, food: 80, water: 75 }, tod: SURV.startTime, parts: 0, axeLvl: 0, gunLvl: 0, intro: false, nightSeen: false, free: false, met: false, zstage: 0, nights: 0, chapter2: 0, season: readSeasonProgress(null) };
 
-function loadSave(): Save {
+function loadSave(key = saveKey): Save {
   const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
   const num = (v: unknown, d: number, max = 999) => (typeof v === 'number' && isFinite(v) ? Math.max(0, Math.min(max, v)) : d);
   try {
-    const v = JSON.parse(localStorage.getItem(CFG.saveKey) ?? '{}');
+    const raw = localStorage.getItem(key);
+    if (key === REPLAY_KEY && raw === null) {
+      const original = loadSave(CFG.saveKey);
+      if (original.free) return {
+        ...original,
+        chapter2: HOUSE12.entrance,
+        season: readSeasonProgress(null),
+        vit: { hp: Math.max(75, original.vit.hp), food: Math.max(65, original.vit.food), water: Math.max(65, original.vit.water) },
+      };
+    }
+    const v = JSON.parse(raw ?? '{}');
     const taken = strs(v.taken).filter((id) => itemOf(id));
     return {
       found: strs(v.found), taken, hold: typeof v.hold === 'string' && taken.includes(v.hold) ? v.hold : null, loot: strs(v.loot),
@@ -46,7 +60,7 @@ function loadSave(): Save {
     };
   } catch { return structuredClone(FRESH); }
 }
-function save(s: Save) { try { localStorage.setItem(CFG.saveKey, JSON.stringify(s)); } catch { /* приватный режим */ } }
+function save(s: Save) { try { localStorage.setItem(saveKey, JSON.stringify(s)); } catch { /* приватный режим */ } }
 
 async function boot() {
   await Promise.allSettled([document.fonts.load('700 54px Caveat'), document.fonts.load('20px Russo')]);
@@ -155,6 +169,8 @@ async function boot() {
   let warned = false;
   let near: Memory | null = null;
   let spot: Spot | null = null;
+  let climbTarget: ApartmentClimb | null = null;
+  let climbing: { target: ApartmentClimb; from: Vec2; floor: number; elapsed: number } | null = null;
   let flashT = 0;
   let hitT = 0;
   let toastT = 0;
@@ -162,6 +178,8 @@ async function boot() {
   let nightTold = false;
   let hungerTold = 0;
   let growlT = 0;
+  let loudT = 0;
+  let depotScared = false;
   let drops = 0;
   let edgeT = -99;
   let heartT = 0;
@@ -221,8 +239,18 @@ async function boot() {
     document.body.classList.toggle('two', arms.hasAxe && arms.hasGun);
     document.body.classList.toggle('bino', st.hold === 'bino');
   };
+  let knockAttempt: { taps: number[]; done: () => void } | null = null;
+  let tuning: { entered: number | null; done: () => void } | null = null;
+  const closeInstruments = () => {
+    if (tuning) sound.radio(null);
+    knockAttempt = null;
+    tuning = null;
+    $('knocker').hidden = true;
+    $('tuner').hidden = true;
+    $('cardOk').textContent = 'ДАЛЬШЕ';
+  };
   const card = (title: string, text: string, kind: 'note' | 'memory', voice?: string, photo?: string) => {
-    $('pipeChoices').hidden = true;
+    closeInstruments();
     $('seasonChoices').hidden = true;
     const img = $<HTMLImageElement>('cardImg');
     img.style.display = photo ? 'block' : 'none';
@@ -238,7 +266,7 @@ async function boot() {
     mode = m;
     document.body.classList.toggle('cine', m === 'cine');
     show('menu', m === 'menu'); show('card', m === 'card'); show('erased', m === 'erased'); show('pause', m === 'pause'); show('map', m === 'map');
-    if (m === 'play') input.lock(); else if (m !== 'peek' && m !== 'cine') document.exitPointerLock?.();
+    if (m === 'play') input.lock(); else if (m !== 'peek' && m !== 'cine' && m !== 'climb') document.exitPointerLock?.();
   };
   $('help').textContent = input.touch
     ? 'Слева — идти, справа — смотреть. Держи телефон горизонтально.'
@@ -246,6 +274,14 @@ async function boot() {
   const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || (navigator as unknown as { standalone?: boolean }).standalone === true;
   if (input.touch && !standalone && /iPhone|iPad|iPod/.test(navigator.userAgent)) $('ios').style.display = 'block';
   $('reset').style.display = found.length || st.taken.length || st.loot.length ? 'block' : 'none';
+  $('replayLabel').hidden = !replaying;
+  $('replaySeason').hidden = !replaying && !st.free;
+  $('replaySeason').textContent = replaying ? 'Основное сохранение' : 'Переиграть сезон 2';
+  $('replaySeason').onclick = () => {
+    const next = new URL(location.href);
+    if (replaying) next.searchParams.delete('replay'); else next.searchParams.set('replay', '2');
+    location.assign(next.href);
+  };
   hud();
 
   const startGame = () => {
@@ -257,9 +293,22 @@ async function boot() {
     if (playT === 0) toast(seasonActive() ? seasonObjective(st.season) : spawn === ENTRANCE ? 'Ты снова у дома 12.' : 'Ты не помнишь, кто ты.', 3.5);
   };
   $('start').onclick = startGame;
-  $('reset').onclick = () => { save(structuredClone(FRESH)); location.reload(); };
+  if (replaying) $('reset').textContent = 'Начать повтор заново';
+  $('reset').onclick = () => {
+    if (replaying) {
+      try { localStorage.removeItem(REPLAY_KEY); } catch { /* приватный режим */ }
+    } else save(structuredClone(FRESH));
+    location.reload();
+  };
   $('resume').onclick = () => setMode('play');
+  $('returnMenu').onclick = () => {
+    commit({});
+    startBtn.textContent = 'ПРОДОЛЖИТЬ';
+    $('replaySeason').hidden = !replaying && !st.free;
+    setMode('menu');
+  };
   $('cardOk').onclick = () => {
+    closeInstruments();
     sound.say(null);
     setMode('play');
     if (!st.free && found.length >= memories.length + HOMES.length) toast('Во всех окнах двора горит свет. Зоя зовёт.', 7);
@@ -332,8 +381,10 @@ async function boot() {
   };
   addEventListener('pagehide', persistOnExit);
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) return;
+    if (!document.hidden) { if (tuning) readDial(); return; }
     persistOnExit();
+    if (knockAttempt) knockAttempt.taps.length = 0;
+    if (tuning) { tuning.entered = null; sound.radio(null); }
     if (mode === 'play') setMode('pause');
   });
   document.addEventListener('pointerdown', () => { if (mode !== 'menu') sound.start(); });
@@ -349,26 +400,76 @@ async function boot() {
     const { x, z } = TAPE_DECK, door = TAPE_DOOR;
     run([
       { dur: 2.5, from: [x + 0.95, 7.45, z + 0.85], to: [x + 0.65, 7.12, z + 0.55], look: [x, 6.85, z], title: 'МАГНИТОФОН № 2619', text: 'На записи — три удара. За стеной кто-то повторяет первые два.', on: () => { sound.cassette(); sound.knock([0.26, 0.5, 1.18], true); sound.knock([0, 0.24], true, 1.7); } },
-      { dur: 6.5, from: [x + 0.65, 7.12, z + 0.55], look: [x, 6.85, z], title: 'НА ОБОРОТЕ ВКЛАДЫША', text: TAPE_LINE },
+      { dur: 6.5, from: [x + 0.65, 7.12, z + 0.55], look: [x, 6.85, z], title: 'ГОЛОС НА КАССЕТЕ', text: TAPE_LINE, voice: 's2_tape' },
       { dur: 2.0, from: [door.x, 7.60, door.z + 2.15], to: [door.x, 7.60, door.z + 0.75], look: [door.x, 7.2, door.z - 1.4], on: () => { updateHouse12(HOUSE12.room); sound.knock([0.05], true); } },
     ], () => toast('Комната вернулась. На столике возле окна остался конверт.', 5));
   };
-  for (const reply of PIPE_REPLIES) {
-    const button = document.createElement('button');
-    button.type = 'button'; button.textContent = reply.label;
-    button.onclick = () => {
-      if (mode !== 'card' || st.chapter2 !== HOUSE12.parcel) return;
-      sound.knock(reply.taps);
-      if (!reply.matches) {
-        $('cardText').textContent = 'Из трубы доходит только гул. Как Лида стучала? Подсказка осталась во вкладыше кассеты и на конверте.';
-        return;
+  const openKnocker = (title: string, description: string, done: () => void) => {
+    card(title, description, 'memory');
+    knockAttempt = { taps: [], done };
+    $('knocker').hidden = false;
+    $('knockInfo').textContent = 'Первый удар запускает шкалу.';
+    $('cardOk').textContent = 'ОТОЙТИ';
+  };
+  $('knockTap').onclick = () => {
+    const attempt = knockAttempt;
+    if (!attempt || mode !== 'card') return;
+    sound.knock([0]);
+    const now = performance.now(), count = attempt.taps.length;
+    if (count && !knockFits(count - 1, now - attempt.taps[count - 1])) {
+      attempt.taps.length = 0;
+      $('knockInfo').textContent = 'Ритм сбился. Начни с первого удара.';
+      return;
+    }
+    attempt.taps.push(now);
+    if (attempt.taps.length === 3) { attempt.done(); return; }
+    $('knockInfo').textContent = count ? '2 из 3. Теперь выдержи паузу.' : '1 из 3. Следующий удар — быстро.';
+  };
+  $('knockDemo').onclick = () => {
+    if (!knockAttempt) return;
+    knockAttempt.taps.length = 0;
+    $('knockInfo').textContent = 'Слушай два быстрых удара и третий после паузы.';
+    sound.knock(KNOCK_PATTERN, true);
+  };
+  const openTuner = (done: () => void) => {
+    card('Приёмник', 'Поворачивай ручку. Когда шум стихнет, удерживай частоту, пока не проявится голос.', 'memory');
+    sound.cassette();
+    const dial = $<HTMLInputElement>('radioDial');
+    dial.value = '10';
+    tuning = { entered: null, done };
+    $('tuner').hidden = false;
+    $('cardOk').textContent = 'ОТОЙТИ';
+    readDial();
+  };
+  const readDial = () => {
+    if (!tuning) return;
+    const channel = Number($<HTMLInputElement>('radioDial').value);
+    $('radioFreq').textContent = channel.toFixed(1).replace('.', ',');
+    if (radioInTune(channel)) tuning.entered ??= performance.now();
+    else tuning.entered = null;
+    const strength = radioStrength(channel), percent = Math.round(strength * 100);
+    sound.radio(strength);
+    $('radioMeter').style.setProperty('--level', `${percent}%`);
+    $('radioMeter').setAttribute('aria-valuenow', String(percent));
+    $('radioInfo').textContent = tuning.entered !== null ? 'Есть голос. Удерживай частоту.' : strength > .1 ? 'Слышны обрывки слов.' : 'Только шум.';
+  };
+  $('radioDial').oninput = readDial;
+  const updateInstruments = (now: number) => {
+    if (knockAttempt) {
+      const taps = knockAttempt.taps;
+      const meter = $('knockMeter');
+      const band = KNOCK_WINDOWS[taps.length - 1];
+      const gap = band ? now - taps[taps.length - 1] : 0;
+      meter.style.setProperty('--level', `${Math.min(1, gap / TAP_TIMEOUT) * 100}%`);
+      meter.style.setProperty('--band-start', `${band ? band[0] / TAP_TIMEOUT * 100 : 0}%`);
+      meter.style.setProperty('--band-width', `${band ? (band[1] - band[0]) / TAP_TIMEOUT * 100 : 0}%`);
+      if (band && gap > TAP_TIMEOUT) {
+        taps.length = 0;
+        $('knockInfo').textContent = 'Труба стихла. Попробуй снова.';
       }
-      sound.knock([0, 0.24, 0.92], true, 1.5);
-      updateHouse12(HOUSE12.answered);
-      card('Костя ответил', 'С той стороны раздался знакомый стук. Потом — совсем близко к трубе: «Мама у мастера. Он знает, где наша дверь. Вход со двора, за прачечной».\n\nТузик уже смотрит в окно.', 'memory');
-    };
-    $('pipeChoices').append(button);
-  }
+    }
+    if (tuning?.entered != null && now - tuning.entered >= RADIO_LOCK_MS) tuning.done();
+  };
   const ZP: Vec2 = { x: -7.4, z: 9.6 }; // тётя Зоя стоит у себя на кухне
   const ZDOOR = homes.door('zoya');
   const porchBoots = new THREE.Group();
@@ -499,12 +600,16 @@ async function boot() {
       button.textContent = label;
       button.onclick = () => {
         if (mode !== 'card' || list.hidden) return;
-        if (event === 'addresses' || event === 'signal') sound.knock([.09, .32, 1.01], true);
-        else sound.click();
-        if (event && changeSeason(event)) {
-          card(title, response, 'memory');
+        sound.click();
+        if (event === 'addresses' || event === 'signal') {
+          openKnocker('Микрофон', 'Линия открыта. Передай семейный ритм в эфир.', () => {
+            if (changeSeason(event)) card(title, response, 'memory');
+          });
+        } else if (event && changeSeason(event)) {
+          card(title, response, 'memory', event === 'line-12' ? 's2_line' : undefined);
         } else {
           $('cardText').textContent = response;
+          if (event === null && label === 'Линия 3') sound.say('s2_duplicate');
         }
       };
       list.append(button);
@@ -523,8 +628,8 @@ async function boot() {
   const finishSeason = () => {
     const sentAddresses = st.season.decision === 'addresses';
     const close = () => card('Сезон 2 пройден', sentAddresses
-      ? 'Костя вернулся домой. К рассвету на двери Зои уже висел список адресов, которые отозвались в эфире. Возле двух номеров кто-то поставил галочки.'
-      : 'Костя вернулся домой. В эфир ушёл условный стук. Утром Зоя оставила дверь приоткрытой и поставила у батареи лишнюю пару тапок.', 'memory');
+      ? 'Костя вернулся домой. На двери Зои висит список адресов. У двух номеров стоят галочки. На обороте кто-то вписал адрес радиомастерской. Почерк Лиды. Она говорит, что листа даже не видела.'
+      : 'Костя вернулся домой. Зоя оставила дверь приоткрытой и поставила у батареи лишнюю пару тапок. Лида унесла батарейки из приёмника. Когда она закрыла калитку, из динамика донёсся один удар.', 'memory');
     if (st.season.step === 'complete') { close(); return; }
     changeSeason('delivery');
     st.tod = .31;
@@ -536,8 +641,10 @@ async function boot() {
         hero: { at: p, toward: ZDOOR }, text: 'На крыльце сохнут две пары ботинок. На маленьких ещё не высохла глина из депо.',
         on: () => { zoya.root.position.set(ZDOOR.x, .05, ZDOOR.z - .2); zoya.root.rotation.y = Math.atan2(p.x - ZDOOR.x, p.z - ZDOOR.z + .2); sound.knock([.35, .58, 1.26], true); } },
       { dur: 5.1, from: [ZDOOR.x + .56, 1.68, ZDOOR.z + 1.38], to: [ZDOOR.x + .32, 1.62, ZDOOR.z + 1.14],
-        look: [ZDOOR.x, 1.53, ZDOOR.z - .2],
-        text: 'Зоя: «Лида его нашла. Он первым делом спросил, где Тузик. Ты заходи, чайник ещё тёплый».' },
+        look: [ZDOOR.x, 1.53, ZDOOR.z - .2], voice: 'z_end1', text: 'Зоя: «Рассвело. Живые. Дай хоть посмотрю на тебя».' },
+      { dur: 5.2, from: [ZDOOR.x + 1.62, 1.22, ZDOOR.z + 3.1], to: [ZDOOR.x + .94, 1.15, ZDOOR.z + 2.65],
+        look: [ZDOOR.x + .35, .52, ZDOOR.z + .42], voice: 's2_home',
+        text: 'Лида по рации: «Костя нашёлся. Он спрашивает, выйдет ли Тузик к нему утром. Скажи ему, что выйдет».' },
     ], () => { zoyaHome(); close(); });
   };
   const useSeason = (id: SeasonSpot) => {
@@ -546,7 +653,7 @@ async function boot() {
     switch (id) {
       case 'order':
         changeSeason('work-order');
-        card('Квитанция из мастерской', 'Лида. Заказ № 2619. «Сначала домой, за Костей. Если двор уже пустой — ждать в автобусе. Водитель в курсе». На обороте мастер обвёл аккумулятор. Рядом приписка: «Хватит на одну линию».', 'note');
+        card('Квитанция из мастерской', 'Лида. Заказ № 2619. «Сначала домой, за Костей. Если двор уже пустой — ждать в автобусе». Время приёма — 07:40. Ниже расписался Костя. В 07:40 Лида ещё ждала его у школы. Она дважды подчеркнула время.', 'note');
         break;
       case 'battery':
         chooseSeason('Один аккумулятор', 'Один провод идёт к лампе над шкафом, другой — к старому приёмнику. Мастер оставил подсказки для обоих случаев.', [
@@ -556,17 +663,22 @@ async function boot() {
         break;
       case 'cabinet':
         changeSeason('lamp-log');
-        card('Записка в шкафу', '«Лида, водитель забрал твою сумку, поставил у третьего сиденья. Костин билет внутри. Автобус № 12 стоит в депо». Под запиской — пропуск со следом от собачьего зуба.', 'note');
+        card('Два талона на один голос', '«На первой записи мальчик стучит, на второй мать отвечает. Лента шла одновременно». Под катушками талон водителя. «Автобус № 12 в депо. Сумку Лиды оставил у третьего сиденья». На ленте — след от собачьего зуба.', 'note');
         break;
-      case 'receiver':
-        changeSeason('radio-log');
-        sound.cassette();
-        card('Запись с приёмника', 'После шороха кто-то говорит: «Лида? Я отогнал двенадцатый в депо. Сумку оставил у третьего сиденья». На заднем плане — два коротких удара и один после паузы.', 'memory');
+      case 'receiver': {
+        const listen = () => {
+          changeSeason('radio-log');
+          sound.cassette();
+          card('Запись с приёмника', 'Лида: «Это Лида. Если ты на двенадцатой, не называй адрес. Я слышу наш стук, но никто ещё не подошёл к трубе».\n\nНа кожухе приёмника приклеен талон: «Автобус 12. Депо. Сумка у третьего сиденья».', 'memory', 's2_web');
+        };
+        if (progress.step === 'clue') openTuner(listen);
+        else listen();
         break;
+      }
       case 'ticket':
         if (changeSeason('ticket')) {
           sound.pickup();
-          card('Билет № 12', 'На сиденье лежит шарф Лиды. Под ним — билет на двоих. Тузик нюхает шарф и скребёт решётку конторы. Под решёткой зажат ремешок этой же сумки. Ты вытягиваешь ремешок, засов с лязгом падает.', 'note');
+          card('Билет № 12', 'На билете двое взрослых. Поверх второго слова детской рукой написано «КОСТЯ». В окне напротив отражается пассажир, хотя сиденье пустое. Тузик смотрит вперёд, на кабину. За решёткой конторы падает засов.', 'note');
         } else {
           card('Билет № 12', 'Билет на двоих проездом через дом № 12. В графе «багаж» водитель пририсовал собачью лапу.', 'note');
         }
@@ -577,12 +689,12 @@ async function boot() {
         break;
       case 'ledger':
         changeSeason('ledger');
-        card('Журнал рейсов', 'У Лиды два билета, а в списке только её имя. Она приписала рядом «Костя, дом 12». На соседних страницах — другие дома, те же выскобленные строчки. Слева на полях сохранилось: «Последний рейс — линия 12».', 'note');
+        card('Журнал рейсов', 'У Лиды два билета, а в списке только её имя. «Костя, дом 12» вписано её рукой. На соседней странице тот же почерк. Там перечислены чужие квартиры. Всё зачёркнуто, кроме пометки «Последний рейс — линия 12».', 'note');
         break;
       case 'relay':
         chooseSeason('Коммутатор', 'На панели три гнезда. В журнале указана линия, по которой диспетчер вызывал пассажиров последнего рейса.', [
-          ['Линия 3', null, 'Отвечает пустая ремонтная бригада. Нужный номер остался в журнале рейсов.'],
-          ['Линия 12', 'line-12', 'Зазвонил телефон. Лида: «Я нашла его шарф. Если Костя на связи, дай наш стук. Я заберу его от двери».'],
+          ['Линия 3', null, 'Диспетчерская. Назовите, пожалуйста, ваш адрес. Я уже знаю вашу улицу.'],
+          ['Линия 12', 'line-12', 'Лида: «Сначала я услышала собственный голос. Он называл квартиру за квартирой. Я не успела сказать Косте, чтобы он молчал. Дай ему наш стук. Только стук».'],
           ['Линия 26', null, 'В динамике только ветер. Номер заказа мастера и номер линии — разные числа.'],
         ]);
         break;
@@ -606,7 +718,9 @@ async function boot() {
     for (const s of spots) {
       if (Math.abs((s.elevation ?? 0) - player.floor) > 0.42) continue;
       const house12Spot = s.id.startsWith('chapter2:');
+      const workshopSpot = s.id.startsWith('workshop:');
       if (house12Spot && (!st.free || !house12SpotVisible(s.id, st.chapter2))) continue;
+      if (workshopSpot && !seasonActive()) continue;
       const seasonSpot = s.kind === 'season';
       if (seasonSpot && (!seasonActive() || !canUseSeasonSpot(st.season, s.id as SeasonSpot))) continue;
       if (s.home && s.room === 'B' && !revealed(st, s.home)) continue;
@@ -618,7 +732,7 @@ async function boot() {
       const d = Math.hypot(dx, dz);
       const primary = s.id === nextSeasonSpot;
       if (d < (primary ? 1.9 : bd) && (d < 0.6 || (dx * f.x + dz * f.z) / d > 0.35)) {
-        if (house12Spot || seasonSpot) {
+        if (house12Spot || seasonSpot || workshopSpot) {
           // Стол, на котором лежит предмет, не мешает взять его. Стены и стёртая дверь перекрывают взаимодействие.
           const sight = apartments.collision(player.pos, player.floor).filter((b) => s.at.x < b.minX || s.at.x > b.maxX || s.at.z < b.minZ || s.at.z > b.maxZ);
           if (!clearWalk(player.pos, s.at, 0, sight)) continue;
@@ -662,6 +776,11 @@ async function boot() {
   };
   const useSpot = (s: Spot) => {
     if (s.kind === 'season') { useSeason(s.id as SeasonSpot); return; }
+    if (s.id === 'workshop:tape') {
+      sound.cassette();
+      card(s.title, s.text, 'memory', 's2_duplicate');
+      return;
+    }
     if (s.kind === 'note') {
       sound.click();
       if (s.id === HOUSE12_ID.ledger && st.chapter2 < HOUSE12.ledger) updateHouse12(HOUSE12.ledger);
@@ -687,9 +806,11 @@ async function boot() {
       if (st.chapter2 === HOUSE12.answered) {
         card('Адрес радиомастерской', 'Вход со двора, за прачечной. Костя сказал, что мастер знает, где их дверь.', 'note');
       } else {
-        card('Труба отопления', 'Труба дрожит. Из-за стены слышны два быстрых удара и пауза. Костя ждёт ответа.', 'note');
-        sound.knock([0.10, 0.34], true);
-        $('pipeChoices').hidden = false;
+        openKnocker('Труба отопления', 'У трубы остался рисунок из конверта. Две чёрточки рядом, третья отдельно. Костя ждёт ответа.', () => {
+          sound.knock(KNOCK_PATTERN, true, .55);
+          updateHouse12(HOUSE12.answered);
+          card('Костя ответил', 'Из трубы: «Мама у мастера. Он знает, где наша дверь. Вход со двора, за прачечной». Тузик смотрит в окно. В стекле кто-то уже поднял руку для ответа.', 'memory');
+        });
       }
       return;
     }
@@ -765,7 +886,8 @@ async function boot() {
     requestAnimationFrame(frame);
     if (document.hidden) { clock.getDelta(); nextFrameAt = 0; return; }
     const portrait = input.touch && innerHeight > innerWidth;
-    const activeView = !portrait && (mode === 'play' || mode === 'cine' || mode === 'peek');
+    if (!portrait && mode === 'card') updateInstruments(now);
+    const activeView = !portrait && (mode === 'play' || mode === 'cine' || mode === 'peek' || mode === 'climb');
     const interval = activeView ? (input.touch ? 1000 / 30 : 0) : 1000 / 12;
     if (interval > 0 && now + 0.8 < nextFrameAt) return;
     nextFrameAt = interval > 0 && now - nextFrameAt < interval ? nextFrameAt + interval : now + interval;
@@ -840,32 +962,42 @@ async function boot() {
       if (player.stride - stepAt > (input.run ? 1.1 : 0.8)) { stepAt = player.stride; sound.step(); }
 
       // Оружие.
+      const tenseSeason = seasonActive() && st.season.step !== 'complete';
+      loudT = Math.max(0, loudT - dt);
       if (input.hit('KeyX')) { arms.swap(); sound.click(); hud(); }
       const ev = arms.update(dt, input.fire);
-      if (ev === 'swing') { sound.swing(); if (player.floor < 0.5 && enemies.hit(player.pos, fwd, WEAPON.axeRange, 0.5, WEAPON.axeDmg * (st.axeLvl ? 1.5 : 1), world.boxes)) sound.thud(); }
-      else if (ev === 'shot') {
-        sound.shot();
+      if (ev === 'swing' || ev === 'shot') {
+        const melee = ev === 'swing';
+        if (melee) sound.swing(); else { sound.shot(); loudT = 2; }
         const dir = player.camera.getWorldDirection(new THREE.Vector3());
         const ray = new THREE.Ray(player.camera.position, dir);
-        const wall = ballistics.trace(ray, WEAPON.gunRange, [...world.boxes, ...places.bulletBoxes, ...apartments.bulletBoxes]);
-        const hit = enemies.shoot(ray, wall.distance, WEAPON.gunDmg * (st.gunLvl ? 1.5 : 1));
+        const range = melee ? WEAPON.axeRange : WEAPON.gunRange;
+        const wall = ballistics.trace(ray, range, [...world.boxes, ...places.bulletBoxes, ...apartments.bulletBoxes]);
+        const hit = melee
+          ? player.floor < .5 && enemies.hit(player.pos, fwd, wall.pane ? wall.distance : range, .5, WEAPON.axeDmg * (st.axeLvl ? 1.5 : 1), world.boxes, tenseSeason) ? 0 : null
+          : enemies.shoot(ray, wall.distance, WEAPON.gunDmg * (st.gunLvl ? 1.5 : 1));
         const end = ray.at(hit ?? wall.distance, new THREE.Vector3());
-        ballistics.fire(arms.muzzle(), end);
+        if (!melee) ballistics.fire(arms.muzzle(), end);
         if (hit !== null) sound.thud();
-        else if (wall.pane) { ballistics.damage(wall.pane, end, dir); sound.glass(); }
+        else if (wall.pane) { ballistics.damage(wall.pane, end, dir); sound.glass(); loudT = Math.max(loudT, .8); }
         hud();
       }
       else if (ev === 'empty') { sound.dry(); if (arms.hasAxe) { arms.cur = 'axe'; hud(); } toast('Патроны кончились.', 2.5); }
 
       // Ночные копии.
-      const tick = player.floor > 0.5 ? { damage: 0, screamed: false, near: false, died: [] } : enemies.update(dt, { t, player: player.pos, fwd, running: input.run && player.moving, flash: player.flashlightOn, night, indoors, dog: dog.pos, boxes: world.boxes, nooks: world.nooks, area: st.free ? null : AREA, siege: !!siege });
+      if (!depotScared && tenseSeason && st.season.step === 'office' && Math.hypot(player.pos.x - SEASON_POINTS.ticket.x, player.pos.z - SEASON_POINTS.ticket.z) < 2.3) {
+        depotScared = true;
+        enemies.startle({ x: DEPOT.x - 4, z: DEPOT.z - 7.36 });
+        sound.scream();
+      }
+      const tick = player.floor > 0.5 ? { damage: 0, screamed: false, near: false, died: [] } : enemies.update(dt, { t, player: player.pos, fwd, running: input.run && player.moving, flash: player.flashlightOn, night, indoors, dog: dog.pos, boxes: world.boxes, nooks: world.nooks, area: st.free ? null : AREA, siege: !!siege, season: tenseSeason, loud: tenseSeason && loudT > 0 });
       if (tick.damage) { st.vit = hurt(st.vit, tick.damage); hitT = 1; sound.pain(); }
       if (tick.screamed) sound.scream();
       if (night && !wasNight) st.nights++;
       wasNight = night;
       heartT -= dt;
       if (tick.near && heartT <= 0) { heartT = st.vit.hp < 40 ? 0.6 : 0.95; sound.heart(); }
-      sound.setNight(night ? (tick.near ? 1 : 0.45) : 0);
+      sound.setNight(tick.near ? 1 : night ? .45 : 0);
       growlT -= dt;
       if (tick.near && growlT <= 0) { growlT = 5; sound.growl(); }
       for (const p of tick.died) {
@@ -891,10 +1023,16 @@ async function boot() {
 
       near = player.floor > 0.5 ? null : memories.find((m) => !m.found && Math.hypot(m.at.x - player.pos.x, m.at.z - player.pos.z) < 2.2) ?? null;
       spot = spotNear();
+      climbTarget = st.free ? apartments.traverse(player.pos, player.floor, fwd) : null;
       if (spot?.kind === 'season') near = null;
       else if (near) spot = null;
-      if (input.hit('KeyE') && !cine.active) {
+      if (input.hit('KeyE') && mode === 'play' && !cine.active) {
         if (near) pick(near);
+        else if (climbTarget) {
+          climbing = { target: climbTarget, from: { ...player.pos }, floor: player.floor, elapsed: 0 };
+          sound.step();
+          setMode('climb');
+        }
         else if (spot) useSpot(spot);
         else if (canPetDog()) { dog.pet(); toast('Ты гладишь Тузика. Он на секунду забывает бояться города.', 3); }
       }
@@ -908,6 +1046,27 @@ async function boot() {
       for (const k of ['KeyE', 'KeyF', 'KeyX', 'Digit1', 'Digit2']) input.hit(k);
       near = null;
       spot = null;
+      climbTarget = null;
+      if (mode === 'climb' && climbing) {
+        const { target, from, floor } = climbing;
+        climbing.elapsed += raw;
+        const k = Math.min(1, climbing.elapsed / (target.kind === 'ladder' ? 1.18 : .72));
+        const ease = k * k * (3 - 2 * k);
+        const sideways = target.kind === 'ladder' ? Math.max(0, (k - .3) / .7) : ease;
+        player.pos = { x: THREE.MathUtils.lerp(from.x, target.to.x, sideways), z: THREE.MathUtils.lerp(from.z, target.to.z, sideways) };
+        player.floor = THREE.MathUtils.lerp(floor, target.floor, ease) + (target.kind === 'window' ? Math.sin(k * Math.PI) * .48 : 0);
+        player.update(0, input, look, [], world.half, true);
+        if (k >= 1) {
+          // Тузик остаётся рядом с лестничным пролётом, пока игрок на балконе.
+          if (target.floor === 0 && dog.floor > .5) {
+            dog.floor = 0;
+            dog.place(target.to, world.boxes);
+          }
+          climbing = null;
+          sound.step();
+          setMode('play');
+        }
+      }
       if (mode === 'peek' && peek) {
         zoom = true;
         player.update(dt, input, { x: Math.sin(t * 1.3) * 0.6, y: Math.cos(t * 1.7) * 0.4 }, world.boxes, world.half, true);
@@ -931,12 +1090,12 @@ async function boot() {
               : allFound() ? (arms.hasAxe ? 'Поговори с Зоей' : 'Возьми топор в пне во дворе') : 'Осмотри двор: Тузик что-то чует';
     if (goalNow !== goalText) { goalText = goalNow; $('goal').textContent = goalNow; }
     $('binoMask').style.opacity = zoom ? '1' : '0';
-    const nearDog = mode === 'play' && !near && !spot && canPetDog();
-    const label = mode !== 'play' ? '' : near ? `взять: ${near.title.toLowerCase()}` : spot ? spotLabel(spot) : nearDog ? 'погладить Тузика' : '';
+    const nearDog = mode === 'play' && !near && !spot && !climbTarget && canPetDog();
+    const label = mode !== 'play' ? '' : near ? `взять: ${near.title.toLowerCase()}` : climbTarget?.label ?? (spot ? spotLabel(spot) : nearDog ? 'погладить Тузика' : '');
     $('prompt').style.display = label ? 'block' : 'none';
     $('promptText').textContent = label ? (input.touch ? label : `E — ${label}`) : '';
     $('bAct').style.display = label && input.touch ? 'flex' : 'none';
-    $('bAct').textContent = nearDog ? 'ГЛАДИТЬ' : near || spot?.kind === 'item' || spot?.kind === 'loot' || spot?.kind === 'tape' ? 'ВЗЯТЬ' : spot?.kind === 'note' ? 'ЧИТАТЬ' : spot?.kind === 'deck' ? 'ПЛЁНКА' : spot?.kind === 'pipe' ? 'СТУК' : spot?.kind === 'season' ? 'ДЕЙСТВИЕ' : 'ДВЕРЬ';
+    $('bAct').textContent = climbTarget ? 'ЛЕЗТЬ' : nearDog ? 'ГЛАДИТЬ' : near || spot?.kind === 'item' || spot?.kind === 'loot' || spot?.kind === 'tape' ? 'ВЗЯТЬ' : spot?.kind === 'note' ? 'ЧИТАТЬ' : spot?.kind === 'deck' ? 'ПЛЁНКА' : spot?.kind === 'pipe' ? 'СТУК' : spot?.kind === 'season' ? 'ДЕЙСТВИЕ' : 'ДВЕРЬ';
     if (flashT > 0) flashT = Math.max(0, flashT - dt * 1.2);
     $('flash').style.opacity = String(flashT);
     if (hitT > 0) hitT = Math.max(0, hitT - dt * 2);
@@ -957,7 +1116,7 @@ async function boot() {
 
     animateMemories(memories, t);
     world.setTime(st.tod);
-    cine.update(Math.min(0.25, raw));
+    cine.update(raw);
     const cameraPosition = cine.active ? cine.cam.position : player.camera.position;
     world.update(t, cameraPosition);
     seasonWorld.update(cameraPosition, high);

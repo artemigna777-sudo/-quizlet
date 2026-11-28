@@ -15,7 +15,7 @@ const TITLES: Record<SeasonSpot, string> = {
 };
 
 export async function buildSeasonWorld(scene: THREE.Scene, boxes: Box[], ballistics: Ballistics) {
-  const modelIds = ['wooden_table_02', 'wooden_bookshelf_worn', 'metal_tool_chest', 'boombox', 'painted_wooden_chair_01', 'wooden_crate_02', 'wall_clock', 'vintage_day_bed', 'stationery_supplies', 'vintage_electric_kettle'] as const;
+  const modelIds = ['wooden_table_02', 'wooden_bookshelf_worn', 'metal_tool_chest', 'boombox', 'painted_wooden_chair_01', 'wooden_crate_02', 'wall_clock', 'vintage_day_bed', 'stationery_supplies', 'vintage_electric_kettle', 'bench_vice_01', 'cross_pein_hammer', 'handsaw_wood', 'clipboard', 'cassette_player', 'small_wooden_table_01'] as const;
   const models = new Map(await Promise.all(modelIds.map(async (id) => [id, await loadModel(id)] as const)));
   const paint = (base: string, dark: string, tile = false) => lambert({ map: canvasTex(48, 48, (c, w, h) => {
     c.fillStyle = base; c.fillRect(0, 0, w, h);
@@ -41,6 +41,7 @@ export async function buildSeasonWorld(scene: THREE.Scene, boxes: Box[], ballist
   const glass = new THREE.MeshBasicMaterial({ color: 0x597584, transparent: true, opacity: .61, side: THREE.DoubleSide, depthWrite: false });
   const groups: { centre: Vec2; root: THREE.Group }[] = [];
   const shown: Partial<Record<SeasonSpot, THREE.Object3D>> = {};
+  const workshopSpots: Spot[] = [];
   const footprints: Box[] = [];
   const gate = new THREE.Group();
   const dispatchDoor = new THREE.Group();
@@ -172,6 +173,37 @@ export async function buildSeasonWorld(scene: THREE.Scene, boxes: Box[], ballist
     w.prop('vintage_day_bed', 6.8, -1.55, 0, Math.PI / 2);
     w.prop('vintage_electric_kettle', 4.8, -5.9, .75);
     w.prop('wooden_table_02', 4.8, -6.03);
+    w.prop('wooden_table_02', 4.75, -3.3);
+    w.prop('bench_vice_01', 5.12, -3.09, .83, .2, .71);
+    w.prop('cross_pein_hammer', 4.45, -3.52, .84, Math.PI / 4, .77);
+    w.prop('painted_wooden_chair_01', 4.75, -4.56, 0, .3);
+    w.prop('wooden_crate_02', 2.5, -6.8, 0, .2);
+    w.prop('wooden_crate_02', 3.0, -6.82, .43, -.12, .73);
+    w.prop('small_wooden_table_01', 3.06, .65);
+    const recorder = w.prop('cassette_player', 3.06, .65, models.get('small_wooden_table_01')!.size.y, Math.PI, .82);
+    w.prop('clipboard', 4.63, -6.25, .84, .31, .86);
+    w.prop('handsaw_wood', -6.84, -3.11, .84, -.63, .66);
+    w.sign('РЕМОНТ · ПРИЁМКА', -5.48, 2.05, -8.92, 3.25, '#555246');
+    w.sign('ПРОВЕРКА СИГНАЛА', 3.1, 2.04, -8.92, 2.95, '#434e45');
+    w.box(-7.57, 1.71, -.85, .10, 1.05, 2.24, cream);
+    for (let i = 0; i < 11; i++) {
+      w.box(-7.51, 1.78 + (i % 3) * .145, -1.87 + .196 * i, .081, .07, .025, iron);
+      if (i % 3) w.box(-7.46, 1.61 + (i % 3) * .139, -1.87 + .196 * i, .027, .325, i % 2 ? .043 : .094, i % 2 ? iron : cloth);
+    }
+    for (const x of [3.88, 4.08, 4.28]) {
+      w.box(x, .855, -3.33, .13, .052, .21, iron);
+      w.box(x, .887, -3.32, .075, .029, .10, blue);
+    }
+    for (const [x, z] of [[.52, -5.66], [1.78, -5.65], [2.78, -5.58]]) {
+      w.box(x, .06, z, .93, .023, .03, rubber);
+    }
+    w.box(.61, .71, -5.65, .045, 1.18, .044, rubber);
+    w.box(2.77, 1.50, -5.59, .31, .43, .089, iron);
+    workshopSpots.push(
+      { id: 'workshop:bench', kind: 'bench', room: 'A', at: { x: WORKSHOP.x + 4.75, z: WORKSHOP.z - 3.3 }, title: 'Верстак радиомастера', text: '', mesh: null },
+      { id: 'workshop:tape', kind: 'note', room: 'A', at: { x: WORKSHOP.x + 3.06, z: WORKSHOP.z + .65 }, title: 'Контрольная запись', text: 'На корпусе надпись «Не перематывать». После щелчка — знакомый голос. «Диспетчерская. Назовите, пожалуйста, ваш адрес. Я уже знаю вашу улицу».\n\nДата на плёнке на день раньше приёмного талона.', mesh: recorder },
+      { id: 'workshop:log', kind: 'note', room: 'A', at: { x: WORKSHOP.x + 4.63, z: WORKSHOP.z - 6.25 }, title: 'Журнал ремонта', text: 'Заказ 2619. Проверка канала 12,6. Первая запись сделана при отключённом микрофоне. Слышно, как ставят на стол чашку. Чашку мастер нашёл там только утром.', mesh: null },
+    );
     w.box(3.9, 2.83, -5.6, .80, .18, .60, iron);
     w.box(3.9, 2.727, -5.6, .69, .055, .48, glow, false, lamp);
     bulb.position.set(4.9, 2.55, -5.35);
@@ -273,9 +305,9 @@ export async function buildSeasonWorld(scene: THREE.Scene, boxes: Box[], ballist
     s.finish();
   }
 
-  const spots: Spot[] = (Object.keys(SEASON_POINTS) as SeasonSpot[]).map((id) => ({
+  const spots = (Object.keys(SEASON_POINTS) as SeasonSpot[]).map<Spot>((id) => ({
     id, kind: 'season', room: 'A', at: SEASON_POINTS[id], title: TITLES[id], text: '', mesh: shown[id] ?? null,
-  }));
+  })).concat(workshopSpots);
   const inside = (p: Vec2) => footprints.some((b) => p.x > b.minX && p.x < b.maxX && p.z > b.minZ && p.z < b.maxZ)
     || (p.x > DEPOT.x - 5.5 && p.x < DEPOT.x - 2.5 && p.z > -8.5 && p.z < .7);
   const barrier = (model: THREE.Group, box: Box, closed: boolean) => {

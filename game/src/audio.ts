@@ -81,6 +81,34 @@ export class Sound {
   private voice: AudioBufferSourceNode | null = null;
   private voiceRequest = 0;
   private clips = new Map<string, Promise<AudioBuffer>>();
+  private radioHiss: { source: AudioBufferSourceNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
+
+  radio(strength: number | null) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (strength === null || !this.enabled) {
+      const hiss = this.radioHiss;
+      if (!hiss) return;
+      this.radioHiss = null;
+      hiss.gain.gain.setTargetAtTime(0, ctx.currentTime, .025);
+      hiss.source.onended = () => { hiss.source.disconnect(); hiss.filter.disconnect(); hiss.gain.disconnect(); };
+      hiss.source.stop(ctx.currentTime + .13);
+      return;
+    }
+    if (!this.radioHiss) {
+      const source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
+      source.buffer = this.noiseBuffer;
+      source.loop = true;
+      filter.type = 'bandpass';
+      filter.Q.value = .65;
+      gain.gain.value = 0;
+      source.connect(filter).connect(gain).connect(this.master);
+      source.start();
+      this.radioHiss = { source, filter, gain };
+    }
+    this.radioHiss.filter.frequency.setTargetAtTime(1400 + strength * 650, ctx.currentTime, .035);
+    this.radioHiss.gain.gain.setTargetAtTime(.115 * (1 - strength) ** 1.6, ctx.currentTime, .055);
+  }
 
   preloadVoices(ids: readonly string[]) {
     const ctx = this.ctx;

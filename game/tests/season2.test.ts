@@ -5,6 +5,7 @@ import { FACE_GLASS, facadeGlass } from '../src/facade';
 import { HOUSE12, HOUSE12_ID, house12SpotVisible, house12Target, readHouse12Progress } from '../src/house12';
 import { clearWalk, walkPath } from '../src/logic';
 import { advanceSeason, canUseSeasonSpot, DEPOT_ENTRY, DISPATCH_ENTRY, readSeasonProgress, seasonCheckpoint, seasonTarget, WORKSHOP_ENTRY, type PowerRoute, type SeasonDecision, type SeasonEvent } from '../src/season2';
+import { KNOCK_PATTERN, knockFits, radioInTune, radioStrength, RADIO_CHANNEL } from '../src/signal';
 
 it('продолжает старое сохранение со стадии тетради и восстанавливает последующие стадии', () => {
   const readLedger = readHouse12Progress(2);
@@ -132,4 +133,27 @@ describe('продолжение после дома 12', () => {
     expect(readSeasonProgress(JSON.parse(JSON.stringify(done)))).toEqual({ step: 'complete', power, decision });
     expect(advanceSeason(done, 'delivery')).toBe(done);
   });
+});
+
+it('принимает ритм с разными интервалами и отклоняет три равных удара', () => {
+  expect(knockFits(0, (KNOCK_PATTERN[1] - KNOCK_PATTERN[0]) * 1000)).toBe(true);
+  expect(knockFits(1, (KNOCK_PATTERN[2] - KNOCK_PATTERN[1]) * 1000)).toBe(true);
+  expect(knockFits(0, 295)).toBe(true);
+  expect(knockFits(1, 295)).toBe(false);
+  expect(knockFits(0, 0)).toBe(false);
+  expect(knockFits(1, 1800)).toBe(false);
+});
+
+it('у сигнала есть узкая полоса настройки и слышимое приближение', () => {
+  expect(radioInTune(RADIO_CHANNEL + .2)).toBe(true);
+  expect(radioInTune(RADIO_CHANNEL - .3)).toBe(false);
+  expect(radioStrength(RADIO_CHANNEL)).toBe(1);
+  expect(radioStrength(RADIO_CHANNEL + .5)).toBeGreaterThan(radioStrength(RADIO_CHANNEL + 1));
+});
+
+it('сохраняет высоту площадки балкона только после подъёма', () => {
+  const balcony = { x: APARTMENTS.x - 6.7, z: APARTMENTS.z - 7 };
+  expect(apartmentHeight(balcony, 0)).toBe(0);
+  expect(apartmentHeight(balcony, 3)).toBe(3);
+  expect(apartmentHeight({ ...balcony, z: balcony.z - 3 }, 3)).toBe(0);
 });

@@ -10,8 +10,50 @@ const part = (g: THREE.Group, geo: THREE.BufferGeometry, mat: THREE.Material, x 
 /** Топор и автомат — и на земле, и в руках. */
 export function axeMesh(): THREE.Group {
   const g = new THREE.Group();
-  part(g, new THREE.BoxGeometry(0.035, 0.62, 0.035), lambert({ color: 0x8a6a3a }));
-  part(g, new THREE.BoxGeometry(0.16, 0.12, 0.03), lambert({ color: 0x9aa0a8 }), 0.07, 0.25, 0);
+  const wood = lambert({ map: canvasTex(32, 64, (c) => {
+    c.fillStyle = '#8b5c37'; c.fillRect(0, 0, 32, 64);
+    for (let x = 0; x < 32; x += 2) {
+      c.strokeStyle = x % 4 ? '#a57a4b' : '#593d27';
+      c.beginPath(); c.moveTo(x, 0); c.bezierCurveTo(x - 4, 24, x + 3, 41, x - 1, 64); c.stroke();
+    }
+  }) });
+  const forged = lambert({ map: canvasTex(32, 32, (c) => {
+    c.fillStyle = '#555359'; c.fillRect(0, 0, 32, 32);
+    for (let i = 0; i < 90; i++) {
+      c.fillStyle = i % 3 ? '#686970' : '#775239';
+      c.fillRect(i * 17 % 31, (i * 11 + (i >> 1)) % 31, 1 + i % 3, 1);
+    }
+  }) });
+  const edge = lambert({ color: 0xb7c2c9 }), leather = lambert({ color: 0x433227 });
+  const handle = new THREE.LatheGeometry([
+    [.012, -.334], [.027, -.323], [.026, -.295], [.017, -.24], [.017, -.1],
+    [.021, .05], [.018, .17], [.022, .255], [.019, .305], [.008, .319],
+  ].map(([r, y]) => new THREE.Vector2(r, y)), 10);
+  const positions = handle.attributes.position;
+  for (let i = 0; i < positions.count; i++) {
+    const y = positions.getY(i);
+    positions.setXYZ(i, positions.getX(i) - Math.sin((y + .33) * 6.2) * .022, y, positions.getZ(i) * .77);
+  }
+  handle.computeVertexNormals();
+  part(g, handle, wood);
+  const profile = new THREE.Shape();
+  profile.moveTo(-.067, .205); profile.lineTo(-.066, .29); profile.lineTo(.06, .3);
+  profile.quadraticCurveTo(.12, .31, .207, .342);
+  profile.quadraticCurveTo(.239, .249, .187, .157);
+  profile.quadraticCurveTo(.148, .177, .068, .197); profile.closePath();
+  const head = new THREE.ExtrudeGeometry(profile, { depth: .030, bevelEnabled: true, bevelSegments: 1, bevelThickness: .006, bevelSize: .006, steps: 1, curveSegments: 5 });
+  const uv = head.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 8, uv.getY(i) * 9);
+  part(g, head, forged, 0, 0, -.015);
+  const blade = new THREE.Shape();
+  blade.moveTo(.207, .342); blade.quadraticCurveTo(.239, .249, .187, .157);
+  blade.lineTo(.17, .166); blade.quadraticCurveTo(.211, .251, .192, .332); blade.closePath();
+  part(g, new THREE.ExtrudeGeometry(blade, { depth: .037, bevelEnabled: false, curveSegments: 6 }), edge, 0, 0, -.0185);
+  part(g, new THREE.BoxGeometry(.019, .018, .018), leather, .005, .308, 0);
+  for (let y = -.256; y < -.13; y += .021) {
+    const strip = part(g, new THREE.CylinderGeometry(.020, .020, .014, 9), leather, -Math.sin((y + .33) * 6.2) * .022, y, 0, .19);
+    strip.scale.z = .83;
+  }
   return g;
 }
 export function gunMesh(): THREE.Group {

@@ -79,12 +79,16 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 .screen small{color:#8c8f97;font-size:14px;line-height:1.4;max-width:460px}
 .go{min-width:220px;min-height:56px;padding:14px 28px;border:0;border-radius:999px;background:#ff7a2e;color:#111;font-family:Russo,sans-serif;font-size:22px}
 .ghost{min-height:48px;padding:10px 22px;border-radius:999px;border:2px solid rgba(255,255,255,.3);background:none;color:#fff;font-size:16px}
+#menuSaves{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}
+#menuSaves .ghost{min-height:40px;padding:7px 13px;font-size:14px}
+#replayLabel{color:#ffd9a0}
+@media(max-height:420px){#menu{gap:9px;padding:13px}}
 #card{background:rgba(6,7,10,.8)}
 #card .paper{max-width:440px;padding:26px 24px;border-radius:18px;background:#efe6cf;color:#221a12;box-shadow:0 30px 80px rgba(0,0,0,.7);transform:rotate(-1.5deg)}
 #card .paper h2{margin:0 0 10px;font-family:Russo,sans-serif;font-weight:400;font-size:26px}
 #card .paper p{color:#3a2e22;font-size:18px}
 #card .paper p{white-space:pre-line;text-align:left;max-height:48dvh;overflow:auto;touch-action:pan-y;overscroll-behavior:contain}
-#card .paper:has(.choices:not([hidden])) p{max-height:23dvh}
+#card .paper:has(.choices:not([hidden]),.instrument:not([hidden])) p{max-height:23dvh}
 #card .paper{max-width:min(560px,92vw);padding:18px 22px}
 #cardImg{width:100%;max-height:34dvh;object-fit:contain;border-radius:4px;margin-bottom:10px;box-shadow:0 4px 14px rgba(0,0,0,.4)}
 #card .paper small{display:block;color:#b0501a;font-family:Russo,sans-serif;letter-spacing:2px;font-size:12px;margin-bottom:6px}
@@ -93,6 +97,17 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 .choices[hidden]{display:none}
 .choices button{font:600 15px system-ui;color:#232822;background:#ded1ab;border:1px solid #857d61;border-radius:6px;padding:9px;text-align:left;cursor:pointer}
 .choices button:focus-visible{outline:2px solid #05476f;outline-offset:2px}
+.instrument{display:grid;gap:7px;margin-top:9px;text-align:left;line-height:1.2}
+.instrument[hidden],.instrument [hidden]{display:none}
+.instrument-bar{height:12px;position:relative;overflow:hidden;border-radius:3px;background:#bbb08f;border:1px solid #9f9272}
+.instrument-bar b{display:block;position:absolute;inset:0 auto 0 0;width:var(--level,0%);background:#1f6460;border-radius:2px}
+.instrument-bar i{display:block;position:absolute;top:0;bottom:0;left:var(--band-start,0%);width:var(--band-width,0%);background:#729276}
+.instrument-bar .needle{width:3px;height:100%;left:var(--level,0%);background:#312910}
+.instrument-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.instrument-actions button{min-height:43px;padding:7px 14px;font:650 15px system-ui;color:#25271e;background:#e9dbad;border:1px solid #9c8d64;border-radius:6px;touch-action:manipulation}
+.instrument-actions button.primary{background:#235d56;color:#fff7df;border-color:#235d56}
+.instrument input[type=range]{width:100%;min-height:37px;accent-color:#235d56;touch-action:pan-x}
+.instrument-output{min-height:1.22em;font:600 13px system-ui;color:#384b40}
 #hold{margin-top:6px;font-size:13px;color:#cfd3dc;font-family:system-ui,sans-serif;font-weight:700}
 #hold b{color:#ffd9a0}
 #flash{position:fixed;inset:0;pointer-events:none;opacity:0;background:#fff3dc}
@@ -146,16 +161,28 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:syste
 <div class="screen on" id="menu">
   <h1>СТЁРТЫЙ<br><span>ГОРОД</span></h1>
   <p>Ты не помнишь, кто ты. Город пуст. Рядом — только пёс со шрамом. На ошейнике: «Тузик».<br>Днём ищи еду, воду и чужие вещи. Ночью — прячься или дерись.</p>
+  <small id="replayLabel" hidden>Повтор сезона · отдельное сохранение</small>
   <button class="go" id="start" disabled>ЗАГРУЗКА…</button>
-  <button class="ghost" id="reset" style="display:none">Начать заново</button>
+  <div id="menuSaves"><button class="ghost" id="replaySeason" hidden>Переиграть сезон 2</button><button class="ghost" id="reset" style="display:none">Начать заново</button></div>
   <small id="ios" style="display:none;color:#ffd9a0">Чтобы убрать панель Safari и играть на весь экран: «Поделиться» → «На экран „Домой“» и открой игру с иконки. Прогресс там начнётся заново.</small>
   <small id="help"></small>
   <small><a href="./sfx/credits.txt" target="_blank" rel="noopener" style="color:inherit">Авторы звука</a></small>
   <small>Ранняя версия. Игру придумывают зрители, код пишет нейросеть.</small>
 </div>
-<div class="screen" id="card"><div class="paper"><small id="cardKind"></small><img id="cardImg" alt="" style="display:none"><h2 id="cardTitle"></h2><p id="cardText" aria-live="polite"></p><div class="choices" id="pipeChoices" hidden></div><div class="choices" id="seasonChoices" hidden></div></div><button class="go" id="cardOk">ДАЛЬШЕ</button></div>
+<div class="screen" id="card"><div class="paper"><small id="cardKind"></small><img id="cardImg" alt="" style="display:none"><h2 id="cardTitle"></h2><p id="cardText" aria-live="polite"></p>
+  <div class="instrument" id="knocker" hidden>
+    <div class="instrument-bar" id="knockMeter" aria-hidden="true"><i></i><b class="needle"></b></div>
+    <div class="instrument-actions"><button type="button" class="primary" id="knockTap">Стукнуть</button><button type="button" id="knockDemo">Послушать ритм</button></div>
+    <output class="instrument-output" id="knockInfo" aria-live="polite"></output>
+  </div>
+  <div class="instrument" id="tuner" hidden>
+    <label for="radioDial">Частота <output id="radioFreq"></output></label><input id="radioDial" type="range" min="8" max="17" value="10" step=".1">
+    <div class="instrument-bar" id="radioMeter" role="meter" aria-label="Чистота сигнала" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><b></b></div>
+    <output class="instrument-output" id="radioInfo" aria-live="polite"></output>
+  </div>
+  <div class="choices" id="seasonChoices" hidden></div></div><button class="go" id="cardOk">ДАЛЬШЕ</button></div>
 <div class="screen" id="erased"><h1 id="erasedTitle">ТЕБЯ СТЁРЛИ</h1><p id="erasedText"></p><button class="go" id="again">ЕЩЁ РАЗ</button></div>
-<div class="screen" id="pause"><h1>ПАУЗА</h1><button class="go" id="resume">ПРОДОЛЖИТЬ</button><button class="ghost" id="quality"></button></div>
+<div class="screen" id="pause"><h1>ПАУЗА</h1><button class="go" id="resume">ПРОДОЛЖИТЬ</button><button class="ghost" id="quality"></button><button class="ghost" id="returnMenu">В меню</button></div>
 <div class="screen" id="map">
   <h1>БЛОКНОТ</h1><p id="mapGoal"></p>
   <canvas id="mapCanvas" aria-label="Карта улиц, домов и текущей цели"></canvas>

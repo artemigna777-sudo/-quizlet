@@ -6,14 +6,14 @@
 import * as THREE from 'three';
 import { CFG, type Vec2 } from './config';
 import { FIRST_PERSON_LAYER, weaponGrips } from './hero';
-import { resolveCircle, streetLines, type Box } from './logic';
+import { clearWalk, resolveCircle, streetLines, type Box } from './logic';
 import { axeMesh, gunMesh } from './loot';
 import type { Actor, Look } from './people';
 
 export const WEAPON = { axeDmg: 40, axeRange: 2.4, axeCool: 0.6, gunDmg: 34, gunRange: 45, gunCool: 0.13 } as const;
 type Kind = 'echo' | 'screamer';
-interface Enemy { kind: Kind; mesh: THREE.Group; actor: Actor; scream: number; dead: boolean; pos: Vec2; hp: number; aware: boolean; cool: number; stun: number; dying: number; dir: number; turnT: number; rush: number; gait: number }
-export interface Ctx { t: number; player: Vec2; fwd: Vec2; running: boolean; flash: boolean; night: boolean; indoors: boolean; dog: Vec2; boxes: readonly Box[]; nooks: readonly Vec2[]; area: Box | null; siege?: boolean }
+interface Enemy { kind: Kind; mesh: THREE.Group; actor: Actor; scream: number; dead: boolean; pos: Vec2; hp: number; aware: boolean; cool: number; stun: number; dying: number; dir: number; turnT: number; rush: number; gait: number; forced: boolean; windup: number }
+export interface Ctx { t: number; player: Vec2; fwd: Vec2; running: boolean; flash: boolean; night: boolean; indoors: boolean; dog: Vec2; boxes: readonly Box[]; nooks: readonly Vec2[]; area: Box | null; siege?: boolean; season?: boolean; loud?: boolean }
 export interface Tick { damage: number; screamed: boolean; near: boolean; died: Vec2[] }
 
 /** Не загораживают ли стены отрезок (грубо, шагом полметра). */
@@ -34,18 +34,19 @@ export class Enemies {
   private usedNooks = new Set<number>();
   constructor(private scene: THREE.Scene, private make: (look: Look) => Actor) {}
 
-  private add(kind: Kind, pos: Vec2) {
+  private add(kind: Kind, pos: Vec2, forced = false) {
     const actor = this.make(kind === 'echo' ? 'echo' : 'pale');
     const g = actor.root;
     if (kind === 'screamer') g.scale.setScalar(1.14);
     g.position.set(pos.x, 0, pos.z);
     actor.play('idle');
     this.scene.add(g);
-    this.list.push({ kind, mesh: g, actor, scream: 0, dead: false, pos: { ...pos }, hp: kind === 'echo' ? 100 : 60, aware: false, cool: 0.6, stun: 0, dying: 0, dir: Math.random() * 6.28, turnT: 0, rush: 0, gait: 0 });
+    this.list.push({ kind, mesh: g, actor, scream: forced ? .65 : 0, dead: false, pos: { ...pos }, hp: kind === 'echo' ? 100 : forced ? 88 : 60, aware: forced, cool: .6, stun: 0, dying: 0, dir: Math.random() * 6.28, turnT: 0, rush: forced ? 8.8 : 0, gait: 0, forced, windup: 0 });
   }
   clear() { for (const e of this.list) this.scene.remove(e.mesh); this.list.length = 0; this.usedNooks.clear(); }
   /** Для проверок. */
   spawn(kind: Kind, pos: Vec2) { this.add(kind, pos); }
+  startle(pos: Vec2) { this.add('screamer', pos, true); }
 
   update(dt: number, c: Ctx): Tick {
     const out: Tick = { damage: 0, screamed: false, near: false, died: [] };
@@ -55,8 +56,8 @@ export class Enemies {
     if (c.night && !c.indoors) {
       this.spawnT -= dt;
       const echoes = this.list.filter((e) => e.kind === 'echo' && !e.dying).length;
-      if (this.spawnT <= 0 && echoes < (c.siege ? 5 : Math.min(6, 2 + this.nights))) {
-        this.spawnT = c.siege ? 3 + Math.random() * 2.5 : 7 + Math.random() * 6;
+      if (this.spawnT <= 0 && echoes < (c.siege ? 5 : Math.min(6, (c.season ? 3 : 2) + this.nights))) {
+        this.spawnT = c.siege ? 3 + Math.random() * 2.5 : c.season ? 5 + Math.random() * 5 : 7 + Math.random() * 6;
         const lines = streetLines();
         const a = Math.random() * 6.28, d = 28 + Math.random() * 12;
         const p = { x: c.player.x + Math.sin(a) * d, z: c.player.z + Math.cos(a) * d };
@@ -77,7 +78,7 @@ export class Enemies {
       const dx = c.player.x - e.pos.x, dz = c.player.z - e.pos.z;
       const d = Math.hypot(dx, dz) || 0.001;
       if (e.hp <= 0 && !e.dead && !e.dying) out.died.push({ ...e.pos });
-      if (e.dying > 0 || e.hp <= 0 || !c.night || d > 80) {
+      if (e.dying > 0 || e.hp <= 0 || (!c.night && !e.forced) || d > 80) {
         // Падает и уходит в асфальт, как будто его стёрли.
         if (!e.dead) { e.dead = true; e.dying = 0.001; e.actor.play('die', { once: true, speed: 2.2 }); }
         e.dying += dt;
@@ -91,17 +92,17 @@ export class Enemies {
       e.cool = Math.max(0, e.cool - dt);
       let speed = 0, tx = dx / d, tz = dz / d;
       if (e.kind === 'echo') {
-        const hears = d < 13 || (c.running && d < 30);
+        const hears = d < 13 || (c.running && d < 30) || (c.loud && d < 34);
         if (c.siege) e.aware = true;
-        else if (c.indoors && d > 3) e.aware = false; else if (hears && !blockedFar(e.pos, c.player, c.boxes, d)) e.aware = true;
-        if (e.aware) speed = 3.6;
+        else if (c.indoors && d > (c.season && c.loud ? 9 : 3)) e.aware = false; else if (hears && !blockedFar(e.pos, c.player, c.boxes, d)) e.aware = true;
+        if (e.aware) speed = c.season ? 4.45 : 3.6;
         else {
           e.turnT -= dt;
           if (e.turnT <= 0) { e.turnT = 3 + Math.random() * 4; e.dir = Math.random() * 6.28; }
           tx = Math.sin(e.dir); tz = Math.cos(e.dir); speed = 0.9;
         }
         // Пёс вцепляется в того, кто подошёл к нему вплотную.
-        if (e.stun <= 0 && Math.hypot(c.dog.x - e.pos.x, c.dog.z - e.pos.z) < 1.8 && e.aware && Math.random() < dt * 0.8) e.stun = 1.6;
+        if (e.stun <= 0 && Math.hypot(c.dog.x - e.pos.x, c.dog.z - e.pos.z) < 1.8 && e.aware && Math.random() < dt * (c.season ? .39 : .8)) e.stun = c.season ? .82 : 1.6;
       } else {
         const lit = c.flash && d < 11 && (-dx * c.fwd.x - dz * c.fwd.z) / d > 0.82 && !blocked(e.pos, c.player, c.boxes);
         if (!e.aware && (lit || d < 3.2)) { e.aware = true; e.rush = 5.4; e.scream = 0.9; out.screamed = true; }
@@ -109,10 +110,25 @@ export class Enemies {
         if (e.aware) { e.rush -= dt; speed = e.scream > 0 ? 0 : 7.2; if (e.rush <= 0) e.dying = 0.001; }
       }
       if (e.stun > 0) speed = 0;
-      if (d < 1.25 && e.aware) {
+      const reach = c.season || e.forced ? 1.48 : 1.25;
+      const close = d < reach && e.aware && clearWalk(e.pos, c.player, 0, c.boxes);
+      const timed = c.season || e.forced;
+      if (timed && e.windup > 0) {
+        e.windup = Math.max(0, e.windup - dt);
+        speed = 0;
+        if (!e.windup) {
+          e.cool = e.kind === 'echo' ? .87 : 1.1;
+          if (close && e.stun <= 0) {
+            out.damage += e.kind === 'echo' ? 17 : 43;
+            if (e.kind === 'screamer') e.dying = .001;
+          }
+        }
+      } else if (close) {
         speed = 0;
         if (e.cool <= 0 && e.stun <= 0) {
-          if (e.kind === 'echo') { out.damage += 8; e.cool = 1.2; } else { out.damage += 30; e.dying = 0.001; }
+          if (timed) e.windup = e.kind === 'echo' ? .28 : .32;
+          else if (e.kind === 'echo') { out.damage += 8; e.cool = 1.2; }
+          else { out.damage += 30; e.dying = 0.001; }
         }
       }
       if (speed > 0) {
@@ -122,10 +138,9 @@ export class Enemies {
         e.gait += moved;
         e.pos = next;
       }
-      const close = d < 1.25 && e.aware;
       if (e.scream > 0) e.actor.play('scream', { speed: 1.6 });
       else if (e.stun > 0) e.actor.play('hit', { speed: 1.5 });
-      else if (close) e.actor.play('attack', { speed: 1.4 });
+      else if (e.windup > 0 || (!timed && close)) e.actor.play('attack', { speed: 1.4 });
       else if (speed > 3) e.actor.play('run', { speed: speed > 6 ? 1.5 : 1 });
       else if (speed > 0) e.actor.play('walk', { speed: 0.75 });
       else e.actor.play('idle', { speed: e.kind === 'screamer' ? 0.15 : 1 });
@@ -138,7 +153,7 @@ export class Enemies {
   }
 
   /** Удар или выстрел: ближайший враг в конусе перед игроком. */
-  hit(player: Vec2, fwd: Vec2, range: number, cone: number, dmg: number, boxes: readonly Box[]): boolean {
+  hit(player: Vec2, fwd: Vec2, range: number, cone: number, dmg: number, boxes: readonly Box[], season = false): boolean {
     let best: Enemy | null = null, bd = range;
     for (const e of this.list) {
       if (e.dying) continue;
@@ -146,14 +161,14 @@ export class Enemies {
       const d = Math.hypot(dx, dz);
       // Вблизи конус шире: в упор не промахнуться.
       const need = Math.min(cone, 1 - 0.45 / Math.max(0.5, d) ** 2 * 0.5);
-      if (d < bd && (dx * fwd.x + dz * fwd.z) / (d || 1) > Math.min(cone, need) && !blocked(player, e.pos, boxes)) { bd = d; best = e; }
+      if (d < bd && (dx * fwd.x + dz * fwd.z) / (d || 1) > Math.min(cone, need) && clearWalk(player, e.pos, 0, boxes)) { bd = d; best = e; }
     }
     if (!best) return false;
     best.hp -= dmg;
     best.aware = true;
     if (best.kind === 'screamer' && best.rush <= 0) best.rush = 4.5;
-    best.stun = Math.max(best.stun, 0.35);
-    const k = 0.7 / (bd || 1);
+    best.stun = Math.max(best.stun, season ? .18 : .35);
+    const k = (season ? .26 : .7) / (bd || 1);
     best.pos = resolveCircle({ x: best.pos.x + (best.pos.x - player.x) * k, z: best.pos.z + (best.pos.z - player.z) * k }, 0.4, boxes);
     return true;
   }
